@@ -1,7 +1,7 @@
 
 import { Transaction, TransactionType } from "../types";
 
-const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbxVOAngs14SNyrD0r87zzstVm1xAWGV9wbRemzNP1h-comr4yO52iSs1Fx92lbSk6eg/exec";
+const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbzn25Yi5rY5gnHbksYTEOABjUJrk2AkCkFFJ5cB1SyhuhbgitTsVX4Bj2L1KqZmi8WD/exec";
 
 const getScriptUrl = () => {
   const saved = localStorage.getItem('google_sheet_script_url');
@@ -27,6 +27,34 @@ export const dbService = {
 
   forceUpdateUrl(newUrl: string) {
     localStorage.setItem('google_sheet_script_url', newUrl);
+  },
+
+  /**
+   * 後端密碼驗證
+   */
+  async verifyLogin(username: string, password: string): Promise<{ authorized: boolean; message?: string }> {
+    const url = getScriptUrl();
+    try {
+      // 登入必須獲得回傳值，因此不能用 no-cors
+      // GAS 的 POST 請求如果回傳 ContentService，瀏覽器會跟隨 302 導向
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'login',
+          data: { username, password }
+        })
+      });
+      
+      const res = await response.json();
+      return {
+        authorized: res.authorized === true,
+        message: res.message
+      };
+    } catch (e) {
+      console.error("Login verification error:", e);
+      return { authorized: false, message: "無法連線至後端驗證伺服器" };
+    }
   },
 
   async fetchAll(signal?: AbortSignal, retries = 2): Promise<Transaction[]> {
@@ -66,6 +94,7 @@ export const dbService = {
           note: String(item.note || item.備註 || ''),
           operator: String(item.操作人員 || item.operator || '系統'),
           faultReason: String(item.故障原因 || item.faultReason || ''),
+          isScrapped: !!(item.是否報廢 || item.isScrapped),
           sentDate: toTaipeiISO(item.送修日期 || item.sentDate),
           repairDate: toTaipeiISO(item.完修日期 || item.repairDate),
           installDate: toTaipeiISO(item.上機日期 || item.installDate)
@@ -100,7 +129,6 @@ export const dbService = {
     if (!url) return false;
     
     try {
-      // 構建扁平化的資料物件，同時包含中文與英文鍵值以防萬一
       const dataPayload: any = {
         id: String(id).trim(),
         date: toTaipeiISO(transaction.date),
@@ -115,6 +143,7 @@ export const dbService = {
         note: String(transaction.note || ''),
         operator: String(transaction.operator || '系統'),
         faultReason: String(transaction.faultReason || ''),
+        isScrapped: !!transaction.isScrapped,
         machineCategory: String(transaction.machineCategory || ''),
         accountCategory: String(transaction.accountCategory || ''),
         sentDate: toTaipeiISO(transaction.sentDate),

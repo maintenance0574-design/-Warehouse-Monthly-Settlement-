@@ -1,3 +1,4 @@
+
 export enum TransactionType {
   INBOUND = '進貨',
   USAGE = '用料',
@@ -21,6 +22,7 @@ export interface Transaction {
   note: string;
   operator: string; // 操作人員
   faultReason?: string; // 故障原因
+  isScrapped?: boolean; // 是否報廢
   // 維修專用欄位
   sentDate?: string;    // 送修日期
   repairDate?: string;  // 完修日期

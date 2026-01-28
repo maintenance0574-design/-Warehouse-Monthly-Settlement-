@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Transaction, TransactionType } from './types';
 import TransactionForm from './components/TransactionForm';
 import RepairForm from './components/RepairForm';
@@ -15,12 +15,24 @@ const getTaipeiDate = (dateInput?: string | Date): string => {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 };
 
-const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbxVOAngs14SNyrD0r87zzstVm1xAWGV9wbRemzNP1h-comr4yO52iSs1Fx92lbSk6eg/exec";
+const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbzn25Yi5rY5gnHbksYTEOABjUJrk2AkCkFFJ5cB1SyhuhbgitTsVX4Bj2L1KqZmi8WD/exec";
+
+// 逾時設定：15 分鐘 (單位: 毫秒)
+const IDLE_TIMEOUT = 15 * 60 * 1000; 
+// 預警設定：14 分鐘 (剩餘 60 秒時提醒)
+const WARNING_TIMEOUT = 14 * 60 * 1000;
 
 const App: React.FC = () => {
   // --- 狀態管理 ---
   const [currentUser, setCurrentUser] = useState<string | null>(() => sessionStorage.getItem('wms_current_user'));
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [warningCountdown, setWarningCountdown] = useState(60);
+  
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('wms_cache_data');
     return saved ? JSON.parse(saved) : [];
@@ -40,6 +52,60 @@ const App: React.FC = () => {
   const [keywordSearch, setKeywordSearch] = useState<string>('');
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<Transaction | null>(null);
+
+  const handleLogout = useCallback(() => {
+    sessionStorage.removeItem('wms_current_user');
+    localStorage.removeItem('wms_cache_data');
+    localStorage.removeItem('ui_active_tab');
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    setCurrentUser(null);
+    setTransactions([]);
+    setActiveTab('dashboard');
+    setShowLogoutConfirm(false);
+    setShowIdleWarning(false);
+  }, []);
+
+  const resetIdleTimer = useCallback(() => {
+    if (!currentUser) return;
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    setShowIdleWarning(false);
+    setWarningCountdown(60);
+    warningTimerRef.current = setTimeout(() => {
+      setShowIdleWarning(true);
+      countdownIntervalRef.current = setInterval(() => {
+        setWarningCountdown(prev => {
+          if (prev <= 1) {
+            if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }, WARNING_TIMEOUT);
+    idleTimerRef.current = setTimeout(() => {
+      handleLogout();
+    }, IDLE_TIMEOUT);
+  }, [currentUser, handleLogout]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    const handleUserActivity = () => {
+      if (!showIdleWarning) resetIdleTimer();
+    };
+    events.forEach(evt => window.addEventListener(evt, handleUserActivity));
+    resetIdleTimer();
+    return () => {
+      events.forEach(evt => window.removeEventListener(evt, handleUserActivity));
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
+  }, [currentUser, showIdleWarning, resetIdleTimer]);
 
   useEffect(() => {
     const currentStoredUrl = localStorage.getItem('google_sheet_script_url');
@@ -89,16 +155,6 @@ const App: React.FC = () => {
     sessionStorage.setItem('wms_current_user', username);
     setCurrentUser(username);
     loadData(false);
-  };
-
-  const handleLogout = () => {
-    sessionStorage.removeItem('wms_current_user');
-    localStorage.removeItem('wms_cache_data');
-    localStorage.removeItem('ui_active_tab');
-    setCurrentUser(null);
-    setTransactions([]);
-    setActiveTab('dashboard');
-    setShowLogoutConfirm(false);
   };
 
   useEffect(() => {
@@ -185,23 +241,23 @@ const App: React.FC = () => {
             {activeTab === 'repairs' ? '維修數據管理' : '核銷明細管理'}
           </h2>
           <div className="flex bg-slate-200 p-1 rounded-xl shadow-inner">
-            <button onClick={() => setViewScope('monthly')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${viewScope === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>最近 10 筆</button>
-            <button onClick={() => setViewScope('all')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${viewScope === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>顯示全部</button>
+            <button onClick={() => setViewScope('monthly')} className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${viewScope === 'monthly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>最近 10 筆</button>
+            <button onClick={() => setViewScope('all')} className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${viewScope === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>顯示全部</button>
           </div>
         </div>
 
         {activeTab === 'records' && (
           <div className="flex bg-white border border-slate-200 p-1 rounded-2xl shadow-sm">
-            <button onClick={() => setRecordCategoryFilter('all')} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${recordCategoryFilter === 'all' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>全部</button>
-            <button onClick={() => setRecordCategoryFilter(TransactionType.INBOUND)} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${recordCategoryFilter === TransactionType.INBOUND ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-indigo-600'}`}>進貨</button>
-            <button onClick={() => setRecordCategoryFilter(TransactionType.USAGE)} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${recordCategoryFilter === TransactionType.USAGE ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:text-amber-600'}`}>用料</button>
-            <button onClick={() => setRecordCategoryFilter(TransactionType.CONSTRUCTION)} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${recordCategoryFilter === TransactionType.CONSTRUCTION ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-purple-600'}`}>建置</button>
+            <button onClick={() => setRecordCategoryFilter('all')} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${recordCategoryFilter === 'all' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>全部</button>
+            <button onClick={() => setRecordCategoryFilter(TransactionType.INBOUND)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${recordCategoryFilter === TransactionType.INBOUND ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-indigo-600'}`}>進貨</button>
+            <button onClick={() => setRecordCategoryFilter(TransactionType.USAGE)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${recordCategoryFilter === TransactionType.USAGE ? 'bg-amber-50 text-amber-600 shadow-lg' : 'text-slate-400 hover:text-amber-600'}`}>用料</button>
+            <button onClick={() => setRecordCategoryFilter(TransactionType.CONSTRUCTION)} className={`px-5 py-2 rounded-xl text-xs font-black transition-all ${recordCategoryFilter === TransactionType.CONSTRUCTION ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-purple-600'}`}>建置</button>
           </div>
         )}
 
         <div className="flex bg-slate-100 p-1 rounded-xl">
-          <button onClick={() => setSearchMode('keyword')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${searchMode === 'keyword' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500'}`}>🔍 關鍵字搜尋</button>
-          <button onClick={() => setSearchMode('date')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${searchMode === 'date' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500'}`}>📅 按日期篩選</button>
+          <button onClick={() => setSearchMode('keyword')} className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${searchMode === 'keyword' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500'}`}>🔍 關鍵字搜尋</button>
+          <button onClick={() => setSearchMode('date')} className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${searchMode === 'date' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500'}`}>📅 按日期篩選</button>
         </div>
       </div>
 
@@ -215,13 +271,13 @@ const App: React.FC = () => {
           ) : (
             <div className="flex flex-wrap items-center gap-3 flex-1">
               <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-1 shadow-sm">
-                <span className="text-[9px] font-black text-slate-400 uppercase">年份</span>
+                <span className="text-[11px] font-black text-slate-400 uppercase">年份</span>
                 <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="bg-transparent py-2 text-sm font-black outline-none min-w-[80px]">
                   {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-1 shadow-sm">
-                <span className="text-[9px] font-black text-slate-400 uppercase">月份</span>
+                <span className="text-[11px] font-black text-slate-400 uppercase">月份</span>
                 <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="bg-transparent py-2 text-sm font-black outline-none min-w-[80px]">
                   <option value="all">全部月份</option>
                   {Array.from({length: 12}).map((_, i) => (
@@ -230,7 +286,7 @@ const App: React.FC = () => {
                 </select>
               </div>
               <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-1 shadow-sm">
-                <span className="text-[9px] font-black text-slate-400 uppercase">特定日</span>
+                <span className="text-[11px] font-black text-slate-400 uppercase">特定日</span>
                 <input type="date" value={specificDate} onChange={e => setSpecificDate(e.target.value)} className="bg-transparent py-2 text-sm font-black outline-none" />
               </div>
             </div>
@@ -239,7 +295,7 @@ const App: React.FC = () => {
         
         <div className="flex items-center gap-4">
           <div className="text-right px-4 py-2 bg-slate-100 rounded-2xl border border-slate-200">
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">目前篩選總額</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">目前篩選總額</p>
             <p className="text-sm font-black text-indigo-600">NT$ {currentListStats.total.toLocaleString()}</p>
           </div>
           <button 
@@ -257,11 +313,36 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#f8fafc] text-black font-medium overflow-x-hidden">
-      {/* 彈窗部分 */}
+      {showIdleWarning && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-2xl">
+          <div className="bg-white rounded-[3rem] p-12 max-w-md w-full text-center shadow-[0_32px_128px_rgba(0,0,0,0.8)] border border-white/20 animate-in zoom-in-95 duration-300">
+            <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center text-5xl mx-auto mb-8 relative">
+              ⏳
+              <div className="absolute inset-0 border-4 border-amber-500/20 rounded-full animate-ping"></div>
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-4">閒置登出提醒</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed">
+              系統偵測到您已長時間未操作。<br />
+              為了您的數據安全，將於 <span className="text-rose-600 font-black text-xl tabular-nums mx-1">{warningCountdown}</span> 秒後自動登出並清除快取。
+            </p>
+            <div className="w-full h-2 bg-slate-100 rounded-full mb-10 overflow-hidden">
+              <div 
+                className="h-full bg-indigo-600 transition-all duration-1000 ease-linear"
+                style={{ width: `${(warningCountdown / 60) * 100}%` }}
+              ></div>
+            </div>
+            <div className="flex flex-col gap-3">
+              <button onClick={resetIdleTimer} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black shadow-[0_20px_40px_-10px_rgba(79,70,229,0.4)] hover:bg-indigo-700 hover:scale-[1.02] transition-all">繼續維持操作 session</button>
+              <button onClick={handleLogout} className="w-full py-4 text-slate-400 font-black hover:text-rose-600 transition-colors">立即安全登出</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl">
           <div className="bg-white rounded-[3rem] p-12 max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95">
-            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center text-4xl mx-auto mb-8 animate-bounce">🚪</div>
+            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center text-4xl mx-auto mb-8 animate-bounce">門</div>
             <h3 className="text-2xl font-black text-slate-900 mb-2">確定要登出嗎？</h3>
             <p className="text-xs font-bold text-slate-400 mb-8">登出後將清空本地快取以確保安全</p>
             <div className="flex flex-col gap-3">
@@ -274,7 +355,8 @@ const App: React.FC = () => {
 
       {editingTransaction && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/60 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-lg">
+          {/* 將容器從 max-w-lg 縮小至 max-w-md */}
+          <div className="w-full max-w-md">
             {editingTransaction.type === TransactionType.REPAIR ? (
               <RepairForm onSave={handleAction} initialData={editingTransaction} onCancel={() => setEditingTransaction(null)} existingTransactions={transactions} currentUser={currentUser} />
             ) : (
@@ -296,7 +378,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* 側邊欄 */}
       <aside className="w-full lg:w-80 bg-slate-900 text-white p-8 flex flex-col shrink-0 lg:fixed lg:h-full z-40 shadow-2xl overflow-y-auto">
         <div className="flex items-center gap-4 mb-14">
           <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-2xl shadow-lg -rotate-6">倉</div>
@@ -305,7 +386,6 @@ const App: React.FC = () => {
             <p className="text-[10px] text-indigo-400 font-bold tracking-widest uppercase opacity-70">WMS PRO v6.9</p>
           </div>
         </div>
-
         <nav className="space-y-2 flex-1 font-black">
           {[
             { id: 'dashboard', label: '📊 營運總覽', desc: '核心成本數據' },
@@ -319,7 +399,6 @@ const App: React.FC = () => {
             </button>
           ))}
         </nav>
-
         <div className="mt-10 pt-6 border-t border-white/5">
           <div className="bg-gradient-to-br from-white/5 to-transparent rounded-[1.75rem] border border-white/10 p-5 flex items-center gap-4">
             <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xl">👤</div>
@@ -333,169 +412,51 @@ const App: React.FC = () => {
 
       <main className="flex-1 lg:ml-80 min-h-screen flex flex-col bg-[#f8fafc]">
         <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 lg:px-12 py-5 flex items-center justify-between shadow-sm">
-          <h2 className="text-xl font-black text-slate-900 tracking-tight">
-            {activeTab === 'dashboard' ? '📊 營運數據分析' : activeTab === 'records' ? '📄 核銷日誌明細' : activeTab === 'repairs' ? '🛠️ 設備維護紀錄' : '📥 批次快速新增'}
-          </h2>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">{activeTab === 'dashboard' ? '📊 營運數據分析' : activeTab === 'records' ? '📄 核銷日誌明細' : activeTab === 'repairs' ? '🛠️ 設備維護紀錄' : '📥 批次快速新增'}</h2>
           <div className="flex items-center gap-4">
-             {isLoading ? (
-               <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-             ) : (
-               <button 
-                onClick={() => loadData(false)} 
-                title="重新整理雲端資料" 
-                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
-               >
-                 🔄
-               </button>
-             )}
+             {isLoading ? <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div> : <button onClick={() => loadData(false)} title="重新整理雲端資料" className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">🔄</button>}
              <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl font-black text-xs uppercase tracking-widest border border-rose-100 hover:bg-rose-600 hover:text-white transition-all">🚪 登出系統</button>
           </div>
         </header>
-
         <div className="p-6 lg:p-12">
           {activeTab === 'dashboard' ? (
             <div className="max-w-[1400px] mx-auto grid grid-cols-1 xl:grid-cols-12 gap-10">
               <div className="xl:col-span-8"><Dashboard transactions={transactions} /></div>
-              <div className="xl:col-span-4"><TransactionForm onSave={handleAction} existingTransactions={transactions} currentUser={currentUser!} /></div>
+              {/* 縮小面板寬度 */}
+              <div className="xl:col-span-4 max-w-md mx-auto xl:mx-0 w-full"><TransactionForm onSave={handleAction} existingTransactions={transactions} currentUser={currentUser!} /></div>
             </div>
           ) : activeTab === 'repairs' ? (
             <div className="max-w-[1400px] mx-auto space-y-12">
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-10 items-start">
                  <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl h-full min-h-[420px] flex flex-col">
-                    <div className="mb-8">
-                      <h3 className="text-lg font-black text-white flex items-center gap-3">
-                        <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
-                        維修件損耗頻率排行 (Top 5)
-                      </h3>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Fault Frequency Analytics</p>
-                    </div>
+                    <div className="mb-8"><h3 className="text-lg font-black text-white flex items-center gap-3"><span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>維修件損耗頻率排行 (Top 5)</h3><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Fault Frequency Analytics</p></div>
                     <div className="flex-1">
                       {repairStats.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={repairStats} layout="vertical" margin={{ left: 20, right: 30 }}>
                             <XAxis type="number" hide />
-                            <YAxis 
-                              dataKey="name" 
-                              type="category" 
-                              axisLine={false} 
-                              tickLine={false} 
-                              tick={{ fontSize: 11, fontWeight: 900, fill: '#cbd5e1' }}
-                              width={100}
-                            />
-                            <Tooltip 
-                              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                              contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', color: '#fff' }}
-                            />
-                            <Bar dataKey="count" radius={[0, 8, 8, 0]} barSize={24}>
-                              {repairStats.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={index === 0 ? '#10b981' : index === 1 ? '#059669' : '#047857'} />
-                              ))}
-                            </Bar>
+                            <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 900, fill: '#cbd5e1' }} width={100}/>
+                            <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', color: '#fff' }}/>
+                            <Bar dataKey="count" radius={[0, 8, 8, 0]} barSize={24}>{repairStats.map((entry, index) => (<Cell key={`cell-${index}`} fill={index === 0 ? '#10b981' : index === 1 ? '#059669' : '#047857'} />))}</Bar>
                           </BarChart>
                         </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                          <span className="text-4xl mb-2">🛠️</span>
-                          <p className="text-xs font-black text-white uppercase tracking-widest">尚無維修數據</p>
-                        </div>
-                      )}
+                      ) : <div className="h-full flex flex-col items-center justify-center opacity-20"><span className="text-4xl mb-2">🛠️</span><p className="text-xs font-black text-white uppercase tracking-widest">尚無維修數據</p></div>}
                     </div>
                  </div>
-
-                 <div className="xl:sticky xl:top-24">
-                   <RepairForm onSave={handleAction} existingTransactions={transactions} currentUser={currentUser!} />
-                 </div>
+                 {/* 縮小面板寬度 */}
+                 <div className="xl:sticky xl:top-24 max-w-md mx-auto xl:mx-0 w-full"><RepairForm onSave={handleAction} existingTransactions={transactions} currentUser={currentUser!} /></div>
               </div>
-              
               <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
                 {renderFilterHeader()}
-                <div className="overflow-x-auto">
-                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                      <tr>
-                        <th className="px-8 py-5">設備資訊 (SN/機台)</th>
-                        <th className="px-8 py-5">維修項目</th>
-                        <th className="px-8 py-5">進度節點</th>
-                        <th className="px-8 py-5 text-center">管理</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {displayedList.map(t => (
-                        <tr key={t.id} className="group hover:bg-slate-50/50">
-                          <td className="px-8 py-6">
-                            <p className="text-sm font-black text-emerald-600">{t.sn || '無 SN'}</p>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">機台: {t.machineNumber || '--'}</p>
-                          </td>
-                          <td className="px-8 py-6">
-                            <p className="text-sm font-black text-slate-900">{t.materialName}</p>
-                            <p className="text-[10px] text-rose-500 font-black mt-1">原因: {t.faultReason || '未標註'}</p>
-                          </td>
-                          <td className="px-8 py-6">
-                            <div className="flex gap-4 text-[10px] font-black">
-                              <div><span className="text-slate-400">送:</span> {t.sentDate || '--'}</div>
-                              <div><span className="text-slate-400">完:</span> {t.repairDate || '--'}</div>
-                            </div>
-                          </td>
-                          <td className="px-8 py-6 text-center">
-                            <div className="flex gap-2 justify-center opacity-0 group-hover:opacity-100">
-                              <button onClick={() => setEditingTransaction(t)} className="p-2 border border-slate-200 rounded-lg">✏️</button>
-                              <button onClick={() => setConfirmDeleteTarget(t)} className="p-2 border border-slate-200 rounded-lg">🗑️</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                   </table>
-                </div>
+                <div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 text-sm font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><tr><th className="px-8 py-5">設備資訊 (SN/機台)</th><th className="px-8 py-5">維修項目</th><th className="px-8 py-5">進度節點</th><th className="px-8 py-5 text-center">管理</th></tr></thead><tbody className="divide-y divide-slate-50">{displayedList.map(t => (<tr key={t.id} className="group hover:bg-slate-50/50"><td className="px-8 py-6"><p className={`text-lg font-black leading-tight mb-1 ${t.isScrapped ? 'text-rose-600' : 'text-emerald-600'}`}>{t.sn || '無 SN'} {t.isScrapped && '💀'}</p><p className="text-sm text-slate-400 font-bold uppercase">機台: {t.machineNumber || '--'}</p></td><td className="px-8 py-6"><p className="text-base font-black text-slate-900">{t.materialName}</p><p className="text-xs text-rose-500 font-black mt-1">原因: {t.faultReason || '未標註'}</p></td><td className="px-8 py-6"><div className="flex flex-col gap-1.5 font-black"><div className="text-sm"><span className="text-slate-400 font-bold">送:</span> {t.sentDate || '--'}</div>{t.isScrapped ? <span className="inline-flex items-center px-3 py-1 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 text-xs w-fit">💀 已報廢</span> : !t.repairDate ? <span className="inline-flex items-center px-3 py-1 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 text-xs w-fit animate-pulse">🛠️ 維修中</span> : <div className="text-sm text-emerald-600"><span className="text-slate-400 font-bold">完:</span> {t.repairDate} ✅</div>}</div></td><td className="px-8 py-6 text-center"><div className="flex gap-2 justify-center opacity-0 group-hover:opacity-100"><button onClick={() => setEditingTransaction(t)} className="p-2.5 border border-slate-200 rounded-lg hover:bg-white shadow-sm transition-all">✏️</button><button onClick={() => setConfirmDeleteTarget(t)} className="p-2.5 border border-slate-200 rounded-lg hover:bg-rose-50 hover:border-rose-200 transition-all">🗑️</button></div></td></tr>))}</tbody></table></div>
               </div>
             </div>
           ) : activeTab === 'records' ? (
             <div className="max-w-[1400px] mx-auto space-y-8">
-              <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
-                {renderFilterHeader()}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                      <tr>
-                        <th className="px-8 py-5">日期/類別</th>
-                        <th className="px-8 py-5">設備/料件</th>
-                        <th className="px-8 py-5 text-right">數量</th>
-                        <th className="px-8 py-5 text-right">總額</th>
-                        <th className="px-8 py-5 text-center">管理</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {displayedList.map(t => (
-                        <tr key={t.id} className="group hover:bg-slate-50/50">
-                          <td className="px-8 py-6">
-                            <p className="text-sm font-black text-slate-900">{t.date}</p>
-                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black border ${t.type === TransactionType.INBOUND ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : t.type === TransactionType.USAGE ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-purple-50 text-purple-600 border-purple-100'}`}>
-                              {t.type}
-                            </span>
-                          </td>
-                          <td className="px-8 py-6">
-                            <p className="text-sm font-black text-slate-900">{t.materialName}</p>
-                            <p className="text-[10px] text-slate-400">機台 ID: {t.machineNumber} / {t.machineCategory}</p>
-                          </td>
-                          <td className="px-8 py-6 text-right font-black text-slate-900">{t.quantity}</td>
-                          <td className="px-8 py-6 text-right font-black text-indigo-600">NT$ {t.total.toLocaleString()}</td>
-                          <td className="px-8 py-6 text-center">
-                            <div className="flex gap-2 justify-center opacity-0 group-hover:opacity-100">
-                              <button onClick={() => setEditingTransaction(t)} className="p-2 border border-slate-200 rounded-lg">✏️</button>
-                              <button onClick={() => setConfirmDeleteTarget(t)} className="p-2 border border-slate-200 rounded-lg">🗑️</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">{renderFilterHeader()}<div className="overflow-x-auto"><table className="w-full text-left"><thead className="bg-slate-50 text-sm font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><tr><th className="px-8 py-5">日期/類別</th><th className="px-8 py-5">設備/料件</th><th className="px-8 py-5 text-right">數量</th><th className="px-8 py-5 text-right">總額</th><th className="px-8 py-5 text-center">管理</th></tr></thead><tbody className="divide-y divide-slate-50">{displayedList.map(t => (<tr key={t.id} className="group hover:bg-slate-50/50"><td className="px-8 py-6"><p className="text-base font-black text-slate-900">{t.date}</p><span className={`px-2.5 py-1 rounded-md text-[10px] font-black border mt-1 inline-block ${t.type === TransactionType.INBOUND ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : t.type === TransactionType.USAGE ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-purple-50 text-purple-600 border-purple-100'}`}>{t.type}</span></td><td className="px-8 py-6"><p className="text-base font-black text-slate-900">{t.materialName}</p><p className="text-xs text-slate-400 font-bold">機台: {t.machineNumber} / {t.machineCategory}</p></td><td className="px-8 py-6 text-right font-black text-slate-900 text-base">{t.quantity}</td><td className="px-8 py-6 text-right font-black text-indigo-600 text-base">NT$ {t.total.toLocaleString()}</td><td className="px-8 py-6 text-center"><div className="flex gap-2 justify-center opacity-0 group-hover:opacity-100"><button onClick={() => setEditingTransaction(t)} className="p-2.5 border border-slate-200 rounded-lg hover:bg-white shadow-sm transition-all">✏️</button><button onClick={() => setConfirmDeleteTarget(t)} className="p-2.5 border border-slate-200 rounded-lg hover:bg-rose-50 hover:border-rose-200 transition-all">🗑️</button></div></td></tr>))}</tbody></table></div></div>
             </div>
           ) : activeTab === 'batch' ? (
-            <div className="max-w-[1400px] mx-auto">
-              <BatchAddForm onSave={handleAction} existingTransactions={transactions} onComplete={() => setActiveTab('records')} currentUser={currentUser!} />
-            </div>
+            <div className="max-w-[1400px] mx-auto"><BatchAddForm onSave={handleAction} existingTransactions={transactions} onComplete={() => setActiveTab('records')} currentUser={currentUser!} /></div>
           ) : null}
         </div>
       </main>

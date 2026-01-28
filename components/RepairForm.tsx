@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TransactionType, Transaction } from '../types';
 
@@ -30,6 +31,7 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
     note: '',
     operator: currentUser,
     faultReason: '',
+    isScrapped: false,
     sentDate: '',
     repairDate: '',
     installDate: '',
@@ -57,7 +59,8 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
         ...formData,
         ...initialData,
         date: initialData.date || getTaipeiToday(),
-        operator: initialData.operator || currentUser
+        operator: initialData.operator || currentUser,
+        isScrapped: !!initialData.isScrapped
       });
     } else {
       setFormData(prev => ({ ...prev, operator: currentUser }));
@@ -100,109 +103,85 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSyncing(true);
+    let finalNote = formData.note.trim();
+    if (formData.isScrapped && !finalNote.includes('報廢')) {
+      finalNote = `【報廢】${finalNote}`.trim();
+    }
     const tx: Transaction = {
       ...formData,
+      note: finalNote,
       id: initialData?.id || 'RP' + Date.now(),
       unitPrice: 0,
       total: 0,
-      operator: currentUser
+      operator: currentUser,
+      isScrapped: formData.isScrapped
     };
     const result = await onSave(tx);
     if (result) {
       setIsSuccess(true);
       setTimeout(() => { setIsSuccess(false); if (onCancel) onCancel(); }, 1200);
-      if (!initialData) setFormData({ ...formData, materialName: '', materialNumber: '', machineNumber: '', sn: '', quantity: 1, note: '', faultReason: '', sentDate: '', repairDate: '', installDate: '', operator: currentUser });
+      if (!initialData) setFormData({ ...formData, materialName: '', materialNumber: '', machineNumber: '', sn: '', quantity: 1, note: '', faultReason: '', isScrapped: false, sentDate: '', repairDate: '', installDate: '', operator: currentUser });
     }
     setIsSyncing(false);
   };
 
-  const inputClasses = "w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-xs text-slate-700";
-  const labelClasses = "block text-[9px] font-black text-emerald-600/60 uppercase tracking-widest mb-0.5 ml-1";
+  const inputClasses = `w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-4 outline-none transition-all font-bold text-sm text-slate-700 ${formData.isScrapped ? 'focus:ring-rose-500/10 focus:border-rose-500' : 'focus:ring-emerald-500/10 focus:border-emerald-500'}`;
+  const labelClasses = `block text-[11px] font-black uppercase tracking-widest mb-1 ml-1 ${formData.isScrapped ? 'text-rose-600/70' : 'text-emerald-600/70'}`;
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-5 rounded-[1.5rem] shadow-xl border border-emerald-100 relative">
+    <form onSubmit={handleSubmit} className={`p-5 rounded-[1.5rem] shadow-xl border transition-colors duration-500 bg-white w-full ${formData.isScrapped ? 'border-rose-100 ring-4 ring-rose-50' : 'border-emerald-100'}`}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-          <span className="w-1 h-5 rounded-full bg-emerald-500"></span>
-          {initialData ? "編輯維修紀錄" : "新增維修案件"}
+          <span className={`w-1 h-5 rounded-full ${formData.isScrapped ? 'bg-rose-600' : 'bg-emerald-500'}`}></span>
+          {initialData ? "編輯維修" : "新增維修"} {formData.isScrapped && <span className="text-rose-600 ml-1 text-sm">💀</span>}
         </h3>
         {onCancel && <button type="button" onClick={onCancel} className="text-slate-300 hover:text-rose-600 transition-colors">✕</button>}
       </div>
 
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClasses}>單據日期</label>
             <input type="date" className={inputClasses} value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
           </div>
-          <div>
-            <label className={labelClasses}>操作人員 (已鎖定)</label>
-            <div className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-xs text-slate-400 flex items-center gap-2">
-              👤 {formData.operator}
-            </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 cursor-pointer group mb-2 ml-1">
+              <input type="checkbox" checked={formData.isScrapped} onChange={e => setFormData({...formData, isScrapped: e.target.checked})} className="hidden" />
+              <div className={`w-10 h-5 rounded-full relative transition-all duration-300 ${formData.isScrapped ? 'bg-rose-600' : 'bg-slate-200'}`}>
+                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300 ${formData.isScrapped ? 'left-5.5' : 'left-0.5'}`}></div>
+              </div>
+              <span className={`text-[10px] font-black uppercase ${formData.isScrapped ? 'text-rose-600' : 'text-slate-400'}`}>報廢</span>
+            </label>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelClasses}>設備 SN 序號</label>
-            <input type="text" placeholder="SN..." className={`${inputClasses} border-emerald-200 bg-emerald-50/10`} value={formData.sn} onChange={e => setFormData({...formData, sn: e.target.value})} />
+            <label className={labelClasses}>設備序號 (SN)</label>
+            <input type="text" placeholder="SN..." className={inputClasses} value={formData.sn} onChange={e => setFormData({...formData, sn: e.target.value})} />
           </div>
           <div>
-            <label className={labelClasses}>機台 ID (編號)</label>
+            <label className={labelClasses}>機台 ID</label>
             <input type="text" placeholder="ID..." className={inputClasses} value={formData.machineNumber} onChange={e => setFormData({...formData, machineNumber: e.target.value})} />
           </div>
         </div>
 
+        <div className="relative">
+          <label className={labelClasses}>維修零件/主體</label>
+          <input type="text" required placeholder="名稱..." className={inputClasses} value={formData.materialName} autoComplete="off" onChange={e => handleMaterialNameChange(e.target.value)} />
+          {suggestions.length > 0 && (
+            <div ref={suggestionRef} className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden max-h-32 overflow-y-auto">
+              {suggestions.map((name, i) => (
+                <button key={i} type="button" onClick={() => selectSuggestion(name)} className="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border-b border-slate-50 last:border-0">💡 {name}</button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
-          <div className="relative">
-            <label className={labelClasses}>維修零件/主體</label>
-            <input 
-              type="text" 
-              required 
-              placeholder="名稱..." 
-              className={`${inputClasses} border-indigo-100`} 
-              value={formData.materialName} 
-              autoComplete="off"
-              onChange={e => handleMaterialNameChange(e.target.value)} 
-            />
-            {suggestions.length > 0 && (
-              <div ref={suggestionRef} className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden">
-                {suggestions.map((name, i) => (
-                  <button 
-                    key={i} 
-                    type="button" 
-                    onClick={() => selectSuggestion(name)}
-                    className="w-full text-left px-3 py-2 text-[10px] font-black text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border-b border-slate-50 last:border-0"
-                  >
-                    💡 {name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <div>
-            <label className={labelClasses}>料件編號 (P/N)</label>
+            <label className={labelClasses}>料件編號</label>
             <input type="text" placeholder="P/N..." className={inputClasses} value={formData.materialNumber} onChange={e => setFormData({...formData, materialNumber: e.target.value})} />
-          </div>
-        </div>
-
-        <div>
-          <label className={labelClasses}>故障原因 (必填)</label>
-          <input 
-            type="text" 
-            placeholder="描述故障情況..." 
-            className={`${inputClasses} border-amber-200 focus:border-amber-500`} 
-            value={formData.faultReason} 
-            required
-            onChange={e => setFormData({...formData, faultReason: e.target.value})} 
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClasses}>維修數量</label>
-            <input type="number" min="1" className={inputClasses} value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
           </div>
           <div>
             <label className={labelClasses}>機台類別</label>
@@ -212,32 +191,34 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
           </div>
         </div>
 
-        <div className="pt-2 border-t border-slate-100 mt-1">
-           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 text-center">進度追蹤</p>
-           <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className={labelClasses}>送修日</label>
-                <input type="date" className={inputClasses} value={formData.sentDate} onChange={e => setFormData({...formData, sentDate: e.target.value})} />
-              </div>
-              <div>
-                <label className={labelClasses}>完修日</label>
-                <input type="date" className={inputClasses} value={formData.repairDate} onChange={e => setFormData({...formData, repairDate: e.target.value})} />
-              </div>
-              <div>
-                <label className={labelClasses}>上機日</label>
-                <input type="date" className={inputClasses} value={formData.installDate} onChange={e => setFormData({...formData, installDate: e.target.value})} />
-              </div>
-           </div>
+        <div>
+          <label className={labelClasses}>故障原因 (必填)</label>
+          <input type="text" placeholder="描述..." className={inputClasses} value={formData.faultReason} required onChange={e => setFormData({...formData, faultReason: e.target.value})} />
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+          <div>
+            <label className={labelClasses}>送修日</label>
+            <input type="date" className={`${inputClasses} px-1`} value={formData.sentDate} onChange={e => setFormData({...formData, sentDate: e.target.value})} />
+          </div>
+          <div>
+            <label className={labelClasses}>完修日</label>
+            <input type="date" disabled={formData.isScrapped} className={`${inputClasses} px-1 disabled:opacity-30`} value={formData.repairDate} onChange={e => setFormData({...formData, repairDate: e.target.value})} />
+          </div>
+          <div>
+            <label className={labelClasses}>上機日</label>
+            <input type="date" disabled={formData.isScrapped} className={`${inputClasses} px-1 disabled:opacity-30`} value={formData.installDate} onChange={e => setFormData({...formData, installDate: e.target.value})} />
+          </div>
         </div>
 
         <div>
-          <label className={labelClasses}>其他備註</label>
-          <textarea className={`${inputClasses} min-h-[35px] resize-none`} value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})}></textarea>
+          <label className={labelClasses}>備註</label>
+          <textarea className={`${inputClasses} min-h-[44px] py-1.5 resize-none`} value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})}></textarea>
         </div>
       </div>
 
-      <button type="submit" disabled={isSyncing} className={`mt-4 w-full font-black py-2.5 rounded-xl transition-all shadow-lg text-sm ${isSuccess ? "bg-emerald-500 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
-        {isSyncing ? "同步中..." : isSuccess ? "✅ 維修單已建檔" : "存入維修紀錄"}
+      <button type="submit" disabled={isSyncing} className={`mt-5 w-full font-black py-3 rounded-xl transition-all shadow-lg text-sm active:scale-[0.98] ${isSuccess ? "bg-emerald-500 text-white" : formData.isScrapped ? "bg-rose-600 hover:bg-rose-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
+        {isSyncing ? "同步中..." : isSuccess ? "✅ 已更新" : formData.isScrapped ? "確認報廢" : "存入紀錄"}
       </button>
     </form>
   );

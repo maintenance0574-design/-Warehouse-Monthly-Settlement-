@@ -1,12 +1,13 @@
 
 /**
- * 倉儲月結管理系統 - 後端核心腳本 (v6.0 動態欄位偵測版)
- * 解決問題：確保「故障原因」、「送修日期」等欄位能精準對應，不受欄位順序影響。
+ * 倉儲月結管理系統 - 後端核心腳本 (v6.2 安全強化版)
  */
 
 var CATEGORIES = ["進貨", "用料", "建置", "維修"];
+// 後端守門員：定義正確密碼 (實際應用中可改為從隱藏的工作表讀取)
+var MASTER_PASSWORD = "Jumbo.net";
 
-// 欄位對照表：[試算表標題關鍵字, 可能的資料鍵值]
+// 欄位對照表
 var FIELD_MAP = [
   { header: "id", keys: ["id"] },
   { header: "date", keys: ["date"] },
@@ -23,6 +24,7 @@ var FIELD_MAP = [
   { header: "操作人員", keys: ["操作人員", "operator"] },
   { header: "sn", keys: ["sn"] },
   { header: "故障原因", keys: ["故障原因", "faultReason", "faultreason"] },
+  { header: "是否報廢", keys: ["是否報廢", "isScrapped", "isscrapped"] },
   { header: "送修日期", keys: ["送修日期", "sentDate", "sentdate"] },
   { header: "完修日期", keys: ["完修日期", "repairDate", "repairdate"] },
   { header: "上機日期", keys: ["上機日期", "installDate", "installdate"] }
@@ -60,28 +62,35 @@ function doPost(e) {
   try {
     var params = JSON.parse(e.postData.contents);
     var action = params.action;
-    var type = params.type; 
-    var id = String(params.id).trim();
     var payload = params.data || {};
 
+    // --- 新增：後端登入驗證邏輯 ---
+    if (action === 'login') {
+      if (payload.password === MASTER_PASSWORD) {
+        return ContentService.createTextOutput(JSON.stringify({result: "ok", authorized: true}))
+          .setMimeType(ContentService.MimeType.JSON);
+      } else {
+        return ContentService.createTextOutput(JSON.stringify({result: "error", authorized: false, message: "密碼驗證不通過"}))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    var type = params.type; 
+    var id = String(params.id).trim();
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(type);
     
-    // 如果工作表不存在則建立 (使用預設順序)
     if (!sheet) {
       sheet = ss.insertSheet(type);
       var defaultHeaders = FIELD_MAP.map(function(f) { return f.header; });
       sheet.appendRow(defaultHeaders);
     }
 
-    // 獲取目前工作表的標題順序
     var currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     
-    // 構建一行資料
     var rowData = currentHeaders.map(function(h) {
       var headerText = String(h).trim();
       
-      // 根據 FIELD_MAP 尋找 payload 中對應的資料
       for (var i = 0; i < FIELD_MAP.length; i++) {
         var field = FIELD_MAP[i];
         if (field.header === headerText) {
@@ -91,7 +100,6 @@ function doPost(e) {
           }
         }
       }
-      // 特別處理 ID 和 Type 如果 FIELD_MAP 沒對到
       if (headerText.toLowerCase() === "id") return id;
       if (headerText.toLowerCase() === "type") return type;
       

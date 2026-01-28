@@ -151,8 +151,8 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
   };
 
   const totalAmount = rows.reduce((sum, r) => sum + (Number(r.quantity) * Number(r.unitPrice)), 0);
-  const labelClass = "block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1";
-  const inputClass = "w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-black text-slate-900 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all";
+  const labelClass = "block text-sm font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1";
+  const inputClass = "w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-black text-slate-900 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all";
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -161,14 +161,14 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
           <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-3xl shadow-lg">⚡</div>
           <div>
             <h2 className="text-xl font-black text-white">智慧批次新增</h2>
-            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest mt-1">目前準備並行提交 {rows.length} 筆紀錄</p>
+            <p className="text-sm text-indigo-400 font-bold uppercase tracking-widest mt-1">目前準備並行提交 {rows.length} 筆紀錄</p>
           </div>
         </div>
 
         <div className="flex items-center gap-8">
           <div className="text-right hidden sm:block">
-            <p className="text-[10px] font-black text-slate-500 uppercase mb-1">預估總計</p>
-            <p className="text-xl font-black text-indigo-400">NT$ {totalAmount.toLocaleString()}</p>
+            <p className="text-sm font-black text-slate-500 uppercase mb-1">預估總計</p>
+            <p className="text-2xl font-black text-indigo-400">NT$ {totalAmount.toLocaleString()}</p>
           </div>
           <div className="flex gap-3">
              <button onClick={addRow} className="px-6 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black text-sm transition-all">+ 新增空白列</button>
@@ -179,20 +179,26 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-5">
         {rows.map((row, idx) => (
-          <div key={row.id} className={`bg-white rounded-[2rem] p-6 shadow-sm border border-slate-200/60 transition-all hover:border-indigo-500 relative ${idx === 0 ? 'ring-2 ring-indigo-500/20 bg-indigo-50/5' : ''}`}>
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-end">
+          <div key={row.id} className={`bg-white rounded-[2rem] p-8 shadow-sm border border-slate-200/60 transition-all hover:border-indigo-500 relative ${idx === 0 ? 'ring-2 ring-indigo-500/20 bg-indigo-50/5' : ''}`}>
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-end">
+              {/* 日期/類別 */}
               <div className="xl:col-span-2">
                 <label className={labelClass}>日期/類別</label>
                 <div className="flex gap-2">
-                  <input type="date" value={row.date} onChange={e => updateRow(idx, 'date', e.target.value)} className={inputClass} />
-                  <select value={row.type} onChange={e => updateRow(idx, 'type', e.target.value)} className={`${inputClass} w-24 text-indigo-600`}>
-                    {Object.values(TransactionType).map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <div className="flex-1">
+                    <input type="date" value={row.date} onChange={e => updateRow(idx, 'date', e.target.value)} className={inputClass} />
+                  </div>
+                  <div className="w-28">
+                    <select value={row.type} onChange={e => updateRow(idx, 'type', e.target.value)} className={`${inputClass} text-indigo-600`}>
+                      {Object.values(TransactionType).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
 
+              {/* 料件名稱 / 料號 (PN) */}
               <div className="xl:col-span-3 relative">
                 <label className={labelClass}>料件名稱 / 料號 (PN)</label>
                 <div className="flex gap-2">
@@ -201,21 +207,28 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
                     {suggestions.rowId === row.id && suggestions.field === 'materialName' && suggestions.items.length > 0 && (
                       <div ref={suggestionRef} className="absolute z-50 left-0 right-0 top-full mt-2 bg-white shadow-2xl border border-slate-200 rounded-2xl overflow-hidden">
                         {suggestions.items.map((item, sIdx) => (
-                          <button key={sIdx} onClick={() => selectSuggestion(idx, 'materialName', item)} className="w-full text-left px-4 py-2 text-[10px] font-black text-slate-600 hover:bg-indigo-600 hover:text-white border-b border-slate-50 last:border-0">💡 {item}</button>
+                          <button key={sIdx} onClick={() => selectSuggestion(idx, 'materialName', item)} className="w-full text-left px-5 py-3 text-sm font-black text-slate-600 hover:bg-indigo-600 hover:text-white border-b border-slate-50 last:border-0">💡 {item}</button>
                         ))}
                       </div>
                     )}
                   </div>
-                  <input type="text" placeholder="PN..." value={row.materialNumber} onChange={e => updateRow(idx, 'materialNumber', e.target.value)} className={`${inputClass} w-24`} />
+                  <div className="flex-1">
+                    <input type="text" placeholder="PN..." value={row.materialNumber} onChange={e => updateRow(idx, 'materialNumber', e.target.value)} className={inputClass} />
+                  </div>
                 </div>
               </div>
 
+              {/* 機台 ID / SN 序號 */}
               <div className="xl:col-span-3">
                 <label className={labelClass}>機台 ID / SN 序號 {row.type === TransactionType.REPAIR && <span className="text-rose-500">/ 故障原因</span>}</label>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-2">
                   <div className="flex gap-2">
-                    <input type="text" placeholder="機台 ID..." value={row.machineNumber} onChange={e => updateRow(idx, 'machineNumber', e.target.value)} className={inputClass} />
-                    <input type="text" placeholder="SN..." value={row.sn} onChange={e => updateRow(idx, 'sn', e.target.value)} className={inputClass} />
+                    <div className="flex-1">
+                      <input type="text" placeholder="機台 ID..." value={row.machineNumber} onChange={e => updateRow(idx, 'machineNumber', e.target.value)} className={inputClass} />
+                    </div>
+                    <div className="flex-1">
+                      <input type="text" placeholder="SN..." value={row.sn} onChange={e => updateRow(idx, 'sn', e.target.value)} className={`${inputClass} border-emerald-100 text-emerald-600`} />
+                    </div>
                   </div>
                   {row.type === TransactionType.REPAIR && (
                     <input type="text" placeholder="輸入故障原因 (必填)..." value={row.faultReason} onChange={e => updateRow(idx, 'faultReason', e.target.value)} className={`${inputClass} bg-rose-50 border-rose-200 text-rose-700 placeholder:text-rose-300`} />
@@ -223,17 +236,23 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
                 </div>
               </div>
 
+              {/* 數量 / 單價 */}
               <div className="xl:col-span-2">
                 <label className={labelClass}>數量 / 單價</label>
                 <div className="flex gap-2">
-                  <input type="number" min="1" value={row.quantity} onChange={e => updateRow(idx, 'quantity', e.target.value)} className={`${inputClass} text-center`} />
-                  <input type="number" min="0" value={row.unitPrice} onChange={e => updateRow(idx, 'unitPrice', e.target.value)} className={`${inputClass} text-right`} />
+                  <div className="flex-1">
+                    <input type="number" min="1" value={row.quantity} onChange={e => updateRow(idx, 'quantity', e.target.value)} className={`${inputClass} text-center`} />
+                  </div>
+                  <div className="flex-1">
+                    <input type="number" min="0" value={row.unitPrice} onChange={e => updateRow(idx, 'unitPrice', e.target.value)} className={`${inputClass} text-right`} />
+                  </div>
                 </div>
               </div>
 
-              <div className="xl:col-span-2 flex justify-end gap-2">
-                <button onClick={() => duplicateRow(idx)} className="p-3 bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-xl transition-all" title="複製此行">📋</button>
-                <button onClick={() => removeRow(idx)} className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-all">🗑️</button>
+              {/* 操作按鈕 */}
+              <div className="xl:col-span-2 flex justify-end gap-3">
+                <button onClick={() => duplicateRow(idx)} className="p-4 bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-2xl transition-all shadow-sm" title="複製此行">📋</button>
+                <button onClick={() => removeRow(idx)} className="p-4 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-2xl transition-all shadow-sm">🗑️</button>
               </div>
             </div>
           </div>
@@ -241,13 +260,13 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
       </div>
 
       <div className="pt-10 border-t border-slate-200">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-3">
-          <span className="w-1 h-4 bg-slate-300 rounded-full"></span>
+        <h3 className="text-base font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-3">
+          <span className="w-1.5 h-5 bg-slate-300 rounded-full"></span>
           資料庫最近 10 筆存檔紀錄 (參考用)
         </h3>
         <div className="bg-white rounded-[2rem] border border-slate-200/60 overflow-hidden opacity-60 hover:opacity-100 transition-all shadow-sm">
           <table className="w-full text-left">
-            <thead className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+            <thead className="bg-slate-50 text-sm font-black text-slate-400 uppercase tracking-widest">
               <tr>
                 <th className="px-6 py-4">日期</th>
                 <th className="px-6 py-4">人員</th>
@@ -258,15 +277,15 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
             </thead>
             <tbody className="divide-y divide-slate-50">
               {historicalData.recentTen.map(t => (
-                <tr key={t.id} className="text-[11px] font-bold">
-                  <td className="px-6 py-3 text-slate-500">{t.date}</td>
-                  <td className="px-6 py-3 text-indigo-600">{t.operator}</td>
-                  <td className="px-6 py-3">
+                <tr key={t.id} className="text-sm font-bold">
+                  <td className="px-6 py-4 text-slate-500">{t.date}</td>
+                  <td className="px-6 py-4 text-indigo-600">{t.operator}</td>
+                  <td className="px-6 py-4">
                     <span className="text-slate-900">{t.materialName}</span>
                     <span className="text-slate-400 ml-2">({t.machineNumber})</span>
                   </td>
-                  <td className="px-6 py-3 text-right">{t.quantity}</td>
-                  <td className="px-6 py-3 text-right text-slate-400">NT$ {t.total.toLocaleString()}</td>
+                  <td className="px-6 py-4 text-right">{t.quantity}</td>
+                  <td className="px-6 py-4 text-right text-slate-400">NT$ {t.total.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
