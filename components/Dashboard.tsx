@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Transaction, TransactionType } from '../types';
 import { 
   ResponsiveContainer, 
@@ -16,48 +16,65 @@ interface Props {
 const CATEGORY_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4', '#94a3b8'];
 
 const Dashboard: React.FC<Props> = ({ transactions }) => {
-  // 1. 僅過濾「進貨」紀錄
+  // --- 年度狀態管理 ---
+  const [selectedYear, setSelectedYear] = useState<string>(() => String(new Date().getFullYear()));
+
+  // 1. 提取現有資料中所有的年份供選擇
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    // 預設加入今年與明年
+    years.add(String(new Date().getFullYear()));
+    years.add(String(new Date().getFullYear() + 1));
+    
+    transactions.forEach(t => {
+      const y = t.date.split('-')[0];
+      if (y) years.add(y);
+    });
+    return Array.from(years).sort((a, b) => b.localeCompare(a));
+  }, [transactions]);
+
+  // 2. 僅過濾「進貨」紀錄
   const inboundTransactions = useMemo(() => 
     transactions.filter(t => t.type === TransactionType.INBOUND),
   [transactions]);
 
-  // 2. 核心指標計算 (月度與年度)
+  // 3. 核心指標計算 (基於所選年度)
   const stats = useMemo(() => {
     const today = new Date();
     const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
-    const currentYear = String(today.getFullYear());
+    const isCurrentYear = selectedYear === String(today.getFullYear());
 
     return inboundTransactions.reduce((acc, curr) => {
       const [y, m] = curr.date.split('-');
       
-      if (y === currentYear) {
+      if (y === selectedYear) {
         acc.yearAmount += curr.total;
         acc.yearCount += 1;
         
-        if (m === currentMonth) {
+        // 只有在選擇的是今年時，才計算「本月」額度，否則本月沒意義
+        if (isCurrentYear && m === currentMonth) {
           acc.monthAmount += curr.total;
           acc.monthCount += 1;
         }
       }
       return acc;
     }, { monthAmount: 0, monthCount: 0, yearAmount: 0, yearCount: 0 });
-  }, [inboundTransactions]);
+  }, [inboundTransactions, selectedYear]);
 
-  // 3. 年度 12 個月趨勢數據
+  // 4. 所選年度 12 個月趨勢數據
   const annualTrendData = useMemo(() => {
-    const currentYear = new Date().getFullYear();
     const months = Array.from({ length: 12 }, (_, i) => {
       const monthStr = String(i + 1).padStart(2, '0');
       return {
         month: `${i + 1}月`,
-        fullMonth: `${currentYear}-${monthStr}`,
+        fullMonth: `${selectedYear}-${monthStr}`,
         amount: 0
       };
     });
 
     inboundTransactions.forEach(t => {
       const [y, m] = t.date.split('-');
-      if (parseInt(y) === currentYear) {
+      if (y === selectedYear) {
         const mIdx = parseInt(m) - 1;
         if (months[mIdx]) {
           months[mIdx].amount += t.total;
@@ -66,14 +83,17 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
     });
 
     return months;
-  }, [inboundTransactions]);
+  }, [inboundTransactions, selectedYear]);
 
-  // 4. 機台種類分佈數據
+  // 5. 所選年度機台種類分佈數據
   const machineCategoryData = useMemo(() => {
     const map = new Map<string, number>();
     inboundTransactions.forEach(t => {
-      const cat = t.machineCategory || '未分類';
-      map.set(cat, (map.get(cat) || 0) + t.total);
+      const [y] = t.date.split('-');
+      if (y === selectedYear) {
+        const cat = t.machineCategory || '未分類';
+        map.set(cat, (map.get(cat) || 0) + t.total);
+      }
     });
     
     const totalValue = Array.from(map.values()).reduce((a, b) => a + b, 0);
@@ -85,23 +105,43 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
         percent: totalValue > 0 ? (value / totalValue) * 100 : 0
       }))
       .sort((a, b) => b.value - a.value);
-  }, [inboundTransactions]);
+  }, [inboundTransactions, selectedYear]);
+
+  const isCurrentYear = selectedYear === String(new Date().getFullYear());
 
   return (
     <div className="space-y-12 pb-20">
       {/* 標題與即時摘要 */}
       <div className="flex flex-wrap items-end justify-between px-2 gap-4">
-        <div>
-          <h3 className="text-3xl font-black text-slate-900 tracking-tight">📦 進貨數據智慧看板</h3>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2"> Procurement & Annual Budget Analytics</p>
-        </div>
-        <div className="flex gap-4">
-          <div className="bg-white border border-slate-200 px-8 py-4 rounded-[2rem] shadow-sm">
-            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">本月累計支出</p>
-            <p className="text-2xl font-black text-indigo-600">NT$ {stats.monthAmount.toLocaleString()}</p>
+        <div className="flex items-center gap-6">
+          <div>
+            <h3 className="text-3xl font-black text-slate-900 tracking-tight">📦 進貨數據智慧看板</h3>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2"> {selectedYear} Procurement Analytics</p>
           </div>
+          {/* 年度切換器 */}
+          <div className="bg-white border border-slate-200 rounded-2xl px-4 py-2 shadow-sm flex items-center gap-3">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">分析年度</span>
+            <select 
+              value={selectedYear} 
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="bg-transparent text-sm font-black text-indigo-600 outline-none cursor-pointer"
+            >
+              {availableYears.map(year => (
+                <option key={year} value={year}>{year} 年</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        <div className="flex gap-4">
+          {isCurrentYear && (
+            <div className="bg-white border border-slate-200 px-8 py-4 rounded-[2rem] shadow-sm animate-in fade-in slide-in-from-right-4 duration-500">
+              <p className="text-[10px] font-black text-slate-400 uppercase mb-1">本月累計支出</p>
+              <p className="text-2xl font-black text-indigo-600">NT$ {stats.monthAmount.toLocaleString()}</p>
+            </div>
+          )}
           <div className="bg-slate-900 px-8 py-4 rounded-[2rem] shadow-xl shadow-slate-200">
-            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">年度累計總額 (YTD)</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">{selectedYear} 年度累計總額</p>
             <p className="text-2xl font-black text-white">NT$ {stats.yearAmount.toLocaleString()}</p>
           </div>
         </div>
@@ -111,26 +151,26 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
         <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm group hover:border-indigo-500 transition-all duration-500">
           <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all">📅</div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">年度進貨總結</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{selectedYear} 年進貨總結</p>
           <p className="text-4xl font-black text-slate-900">NT$ {stats.yearAmount.toLocaleString()}</p>
           <div className="mt-3">
-            <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[11px] font-black">年度共 {stats.yearCount} 筆單據</span>
+            <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[11px] font-black">該年度共 {stats.yearCount} 筆單據</span>
           </div>
         </div>
         
         <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm group hover:border-emerald-500 transition-all duration-500">
           <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-all">📍</div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">本月交易規模</p>
-          <p className="text-4xl font-black text-slate-900">{stats.monthCount} 筆單據</p>
-          <p className="text-xs text-emerald-500 font-bold mt-3">當前月份結算進行中</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{isCurrentYear ? '本月交易規模' : `${selectedYear} 平均單據`}</p>
+          <p className="text-4xl font-black text-slate-900">{isCurrentYear ? `${stats.monthCount} 筆單據` : `共 ${stats.yearCount} 筆`}</p>
+          <p className="text-xs text-emerald-500 font-bold mt-3">{isCurrentYear ? '當前月份數據實時更新' : '歷史年度存檔數據'}</p>
         </div>
 
         <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm group hover:border-indigo-500 transition-all duration-500">
           <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all">🏗️</div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">最大支出類別</p>
-          <p className="text-4xl font-black text-slate-900">{machineCategoryData[0]?.name || '--'}</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{selectedYear} 最大支出類別</p>
+          <p className="text-4xl font-black text-slate-900 truncate pr-2">{machineCategoryData[0]?.name || '--'}</p>
           <div className="mt-3">
-            <span className="text-xs text-slate-400 font-bold italic">佔全年度總額 {machineCategoryData[0]?.percent.toFixed(1) || 0}%</span>
+            <span className="text-xs text-slate-400 font-bold italic">佔 {selectedYear} 年度總額 {machineCategoryData[0]?.percent.toFixed(1) || 0}%</span>
           </div>
         </div>
       </div>
@@ -142,7 +182,7 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
           <div className="flex items-center justify-between mb-12">
             <h3 className="text-xl font-black text-slate-900 flex items-center gap-4">
               <span className="w-2.5 h-10 bg-indigo-600 rounded-full"></span>
-              {new Date().getFullYear()} 年度進貨支出走勢 (1-12月)
+              {selectedYear} 年度進貨支出走勢 (1-12月)
             </h3>
             <div className="px-5 py-2 bg-slate-50 border border-slate-100 rounded-full text-[11px] font-black text-slate-500 uppercase tracking-widest">Monthly Trend Analysis</div>
           </div>
@@ -190,7 +230,7 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
             ) : (
               <div className="h-full flex flex-col items-center justify-center bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200">
                 <span className="text-7xl mb-6 opacity-20">📊</span>
-                <p className="text-base font-black text-slate-300 uppercase tracking-widest">目前尚無進貨數據紀錄</p>
+                <p className="text-base font-black text-slate-300 uppercase tracking-widest">目前 {selectedYear} 年度尚無進貨紀錄</p>
               </div>
             )}
           </div>
@@ -201,7 +241,7 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
           <div className="flex items-center justify-between mb-10">
             <h3 className="text-xl font-black text-slate-900 flex items-center gap-4">
               <span className="w-2.5 h-10 bg-emerald-500 rounded-full"></span>
-              機台種類支出分佈
+              {selectedYear} 機台種類支出分佈
             </h3>
             <div className="px-5 py-2 bg-slate-50 border border-slate-100 rounded-full text-[11px] font-black text-slate-500 uppercase tracking-widest">Category Distribution</div>
           </div>
@@ -215,7 +255,6 @@ const Dashboard: React.FC<Props> = ({ transactions }) => {
                     outerRadius="65%"
                     paddingAngle={10}
                     dataKey="value"
-                    // 百分比修改為保留小數點第一位
                     label={({ name, percent }) => `${name} (${percent.toFixed(1)}%)`}
                     labelLine={false}
                     cx="50%"

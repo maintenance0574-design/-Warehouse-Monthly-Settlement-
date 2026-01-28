@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Transaction, TransactionType } from '../types';
 
@@ -12,7 +13,6 @@ const MACHINE_CATEGORIES = ['BA', 'RL', 'SB', 'XD', '7UP', 'HOT8', '3card', 'DT'
 const getTaipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 
 const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplete, currentUser }) => {
-  // 核心改動：逆向排列，最新增加的在最上面
   const [rows, setRows] = useState<any[]>([
     {
       id: Math.random().toString(36).substr(2, 9),
@@ -57,13 +57,12 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
       names: Array.from(names), 
       numbers: Array.from(numbers), 
       nameToDetails,
-      // 獲取最近 10 筆存檔紀錄用於參考
       recentTen: [...existingTransactions].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10)
     };
   }, [existingTransactions]);
 
   const addRow = () => {
-    const lastRow = rows[0]; // 從第一筆(最上面的)參考
+    const lastRow = rows[0];
     setRows([{
       ...lastRow,
       id: Math.random().toString(36).substr(2, 9),
@@ -74,13 +73,13 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
       note: '',
       quantity: 1,
       operator: currentUser
-    }, ...rows]); // 置頂新列
+    }, ...rows]);
   };
 
   const duplicateRow = (index: number) => {
     const rowToCopy = { ...rows[index], id: Math.random().toString(36).substr(2, 9) };
     const newRows = [...rows];
-    newRows.splice(index, 0, rowToCopy); // 在當前位置上方插入
+    newRows.splice(index, 0, rowToCopy);
     setRows(newRows);
   };
 
@@ -119,30 +118,36 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
+    
+    const validRows = rows.filter(r => r.materialName.trim());
+    if (validRows.length === 0) return;
+
     setIsSubmitting(true);
-    const total = rows.length;
-    setProgress({ current: 0, total });
+    setProgress({ current: 0, total: validRows.length });
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row.materialName.trim()) continue;
+    try {
+      const promises = validRows.map(async (row) => {
+        const tx: Transaction = {
+          ...row,
+          id: 'TX-B' + Date.now() + Math.random().toString(36).substr(2, 5),
+          quantity: Number(row.quantity),
+          unitPrice: Number(row.unitPrice),
+          total: Number(row.quantity) * Number(row.unitPrice),
+          sn: row.sn || '',
+          faultReason: row.faultReason || '',
+        };
+        const res = await onSave(tx, 'save');
+        setProgress(prev => ({ ...prev, current: prev.current + 1 }));
+        return res;
+      });
 
-      const tx: Transaction = {
-        ...row,
-        id: 'TX-B' + Date.now() + Math.random().toString(36).substr(2, 5),
-        quantity: Number(row.quantity),
-        unitPrice: Number(row.unitPrice),
-        total: Number(row.quantity) * Number(row.unitPrice),
-        sn: row.sn || '',
-        faultReason: row.faultReason || '',
-      };
-
-      await onSave(tx, 'save');
-      setProgress(prev => ({ ...prev, current: i + 1 }));
+      await Promise.all(promises);
+      onComplete();
+    } catch (e) {
+      console.error("Batch submission error", e);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
-    onComplete();
   };
 
   const totalAmount = rows.reduce((sum, r) => sum + (Number(r.quantity) * Number(r.unitPrice)), 0);
@@ -151,13 +156,12 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
-      {/* 頂部控制列 */}
       <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl flex flex-wrap justify-between items-center gap-8 sticky top-4 z-10 border border-white/5">
         <div className="flex items-center gap-6">
           <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-3xl shadow-lg">⚡</div>
           <div>
             <h2 className="text-xl font-black text-white">智慧批次新增</h2>
-            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest mt-1">目前準備提交 {rows.length} 筆紀錄</p>
+            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest mt-1">目前準備並行提交 {rows.length} 筆紀錄</p>
           </div>
         </div>
 
@@ -169,13 +173,12 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
           <div className="flex gap-3">
              <button onClick={addRow} className="px-6 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black text-sm transition-all">+ 新增空白列</button>
              <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all">
-                {isSubmitting ? `同步中 ${progress.current}/${progress.total}` : "🚀 開始全量同步"}
+                {isSubmitting ? `並行同步中 ${progress.current}/${progress.total}` : "🚀 開始全量同步"}
              </button>
           </div>
         </div>
       </div>
 
-      {/* 輸入區：新資料置頂 */}
       <div className="space-y-4">
         {rows.map((row, idx) => (
           <div key={row.id} className={`bg-white rounded-[2rem] p-6 shadow-sm border border-slate-200/60 transition-all hover:border-indigo-500 relative ${idx === 0 ? 'ring-2 ring-indigo-500/20 bg-indigo-50/5' : ''}`}>
@@ -190,7 +193,7 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
                 </div>
               </div>
 
-              <div className="xl:col-span-4 relative">
+              <div className="xl:col-span-3 relative">
                 <label className={labelClass}>料件名稱 / 料號 (PN)</label>
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
@@ -203,15 +206,20 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
                       </div>
                     )}
                   </div>
-                  <input type="text" placeholder="PN..." value={row.materialNumber} onChange={e => updateRow(idx, 'materialNumber', e.target.value)} className={`${inputClass} w-32`} />
+                  <input type="text" placeholder="PN..." value={row.materialNumber} onChange={e => updateRow(idx, 'materialNumber', e.target.value)} className={`${inputClass} w-24`} />
                 </div>
               </div>
 
               <div className="xl:col-span-3">
-                <label className={labelClass}>機台 ID / SN 序號</label>
-                <div className="flex gap-2">
-                  <input type="text" placeholder="機台 ID..." value={row.machineNumber} onChange={e => updateRow(idx, 'machineNumber', e.target.value)} className={inputClass} />
-                  <input type="text" placeholder="SN..." value={row.sn} onChange={e => updateRow(idx, 'sn', e.target.value)} className={inputClass} />
+                <label className={labelClass}>機台 ID / SN 序號 {row.type === TransactionType.REPAIR && <span className="text-rose-500">/ 故障原因</span>}</label>
+                <div className="flex flex-col gap-1">
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="機台 ID..." value={row.machineNumber} onChange={e => updateRow(idx, 'machineNumber', e.target.value)} className={inputClass} />
+                    <input type="text" placeholder="SN..." value={row.sn} onChange={e => updateRow(idx, 'sn', e.target.value)} className={inputClass} />
+                  </div>
+                  {row.type === TransactionType.REPAIR && (
+                    <input type="text" placeholder="輸入故障原因 (必填)..." value={row.faultReason} onChange={e => updateRow(idx, 'faultReason', e.target.value)} className={`${inputClass} bg-rose-50 border-rose-200 text-rose-700 placeholder:text-rose-300`} />
+                  )}
                 </div>
               </div>
 
@@ -223,7 +231,7 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
                 </div>
               </div>
 
-              <div className="xl:col-span-1 flex justify-end gap-2">
+              <div className="xl:col-span-2 flex justify-end gap-2">
                 <button onClick={() => duplicateRow(idx)} className="p-3 bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-xl transition-all" title="複製此行">📋</button>
                 <button onClick={() => removeRow(idx)} className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-all">🗑️</button>
               </div>
@@ -232,7 +240,6 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
         ))}
       </div>
 
-      {/* 下方：歷史參考區 - 僅顯示最近 10 筆 */}
       <div className="pt-10 border-t border-slate-200">
         <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-3">
           <span className="w-1 h-4 bg-slate-300 rounded-full"></span>

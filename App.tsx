@@ -15,7 +15,7 @@ const getTaipeiDate = (dateInput?: string | Date): string => {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 };
 
-const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbz-YFkCb20FKni1-Fc9ugrq-sougLIsAanXQgi-iHCIkk8GqEtQbwH_hyzsREP4EUdy/exec";
+const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbxVOAngs14SNyrD0r87zzstVm1xAWGV9wbRemzNP1h-comr4yO52iSs1Fx92lbSk6eg/exec";
 
 const App: React.FC = () => {
   // --- 狀態管理 ---
@@ -30,19 +30,14 @@ const App: React.FC = () => {
     (localStorage.getItem('ui_active_tab') as any) || 'dashboard'
   );
   
-  // 核銷分頁專用的子類別篩選
   const [recordCategoryFilter, setRecordCategoryFilter] = useState<'all' | TransactionType.INBOUND | TransactionType.USAGE | TransactionType.CONSTRUCTION>('all');
-  
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
   const [isLoading, setIsLoading] = useState(false);
-  
   const [viewScope, setViewScope] = useState<'monthly' | 'all'>('monthly');
   const [searchMode, setSearchMode] = useState<'keyword' | 'date'>('keyword');
   const [selectedYear, setSelectedYear] = useState<string>(() => String(new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = useState<string>(() => String(new Date().getMonth() + 1).padStart(2, '0'));
   const [specificDate, setSpecificDate] = useState<string>('');
   const [keywordSearch, setKeywordSearch] = useState<string>('');
-  
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<Transaction | null>(null);
 
@@ -72,16 +67,9 @@ const App: React.FC = () => {
       .slice(0, 5);
   }, [transactions]);
 
-  useEffect(() => {
-    if (currentUser && transactions.length > 0) {
-      localStorage.setItem('wms_cache_data', JSON.stringify(transactions));
-    }
-  }, [transactions, currentUser]);
-
   const loadData = useCallback(async (silent = false) => {
     if (!currentUser) return;
     if (!silent) setIsLoading(true);
-    setSyncStatus('syncing');
     try {
       const data = await dbService.fetchAll();
       const formatted = (data || []).map(t => ({ 
@@ -89,10 +77,9 @@ const App: React.FC = () => {
         date: getTaipeiDate(t.date) 
       }));
       setTransactions(formatted);
-      setSyncStatus('synced');
+      localStorage.setItem('wms_cache_data', JSON.stringify(formatted));
     } catch (e: any) {
       console.error("Fetch Error:", e);
-      setSyncStatus('error');
     } finally {
       setIsLoading(false);
     }
@@ -116,53 +103,39 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (currentUser) {
-      loadData(transactions.length > 0);
+      if (transactions.length === 0) loadData(false);
       localStorage.setItem('ui_active_tab', activeTab);
     }
   }, [activeTab, currentUser]);
 
   const handleAction = async (tx: Transaction) => {
-    setSyncStatus('syncing');
     const isUpdate = transactions.some(t => t.id === tx.id);
     setTransactions(prev => {
-      if (isUpdate) return prev.map(t => t.id === tx.id ? tx : t);
-      return [tx, ...prev];
+      const newItems = isUpdate ? prev.map(t => t.id === tx.id ? tx : t) : [tx, ...prev];
+      localStorage.setItem('wms_cache_data', JSON.stringify(newItems));
+      return newItems;
     });
-
     const ok = isUpdate ? await dbService.update(tx) : await dbService.save(tx);
-    if (ok) {
-      setSyncStatus('synced');
-      loadData(true);
-    } else {
-      setSyncStatus('error');
-    }
     return ok;
   };
 
   const handleDelete = async (target: Transaction) => {
-    setSyncStatus('syncing');
-    setTransactions(prev => prev.filter(t => t.id !== target.id));
+    setTransactions(prev => {
+      const newItems = prev.filter(t => t.id !== target.id);
+      localStorage.setItem('wms_cache_data', JSON.stringify(newItems));
+      return newItems;
+    });
     setConfirmDeleteTarget(null);
-    const ok = await dbService.delete(target.id, target.type);
-    if (ok) {
-      setSyncStatus('synced');
-      loadData(true);
-    } else {
-      setSyncStatus('error');
-    }
+    await dbService.delete(target.id, target.type);
   };
 
-  // --- 篩選邏輯 ---
   const filteredList = useMemo(() => {
     return sortedTransactions.filter(t => {
-      // 分頁基礎過濾
       if (activeTab === 'repairs' && t.type !== TransactionType.REPAIR) return false;
       if (activeTab === 'records') {
         if (t.type === TransactionType.REPAIR) return false;
-        // 子類別篩選邏輯
         if (recordCategoryFilter !== 'all' && t.type !== recordCategoryFilter) return false;
       }
-
       if (searchMode === 'date') {
         if (specificDate) return t.date === specificDate;
         const [y, m] = t.date.split('-');
@@ -181,12 +154,10 @@ const App: React.FC = () => {
     });
   }, [sortedTransactions, activeTab, recordCategoryFilter, keywordSearch, specificDate, searchMode, selectedYear, selectedMonth]);
 
-  const currentListStats = useMemo(() => {
-    return {
-      count: filteredList.length,
-      total: filteredList.reduce((sum, t) => sum + (t.total || 0), 0)
-    };
-  }, [filteredList]);
+  const currentListStats = useMemo(() => ({
+    count: filteredList.length,
+    total: filteredList.reduce((sum, t) => sum + (t.total || 0), 0)
+  }), [filteredList]);
 
   const displayedList = useMemo(() => {
     const isSearching = keywordSearch || specificDate || (searchMode === 'date' && selectedMonth !== 'all');
@@ -194,43 +165,18 @@ const App: React.FC = () => {
     return filteredList.slice(0, 10);
   }, [filteredList, viewScope, keywordSearch, specificDate, searchMode, selectedMonth]);
 
-  const getTypeStyle = (type: TransactionType) => {
-    switch(type) {
-      case TransactionType.INBOUND: return 'bg-indigo-50 text-indigo-600 border-indigo-100';
-      case TransactionType.USAGE: return 'bg-amber-50 text-amber-600 border-amber-100';
-      case TransactionType.CONSTRUCTION: return 'bg-purple-50 text-purple-600 border-purple-100';
-      default: return 'bg-slate-50 text-slate-600 border-slate-100';
-    }
-  };
-
-  // 輔助函式：根據當前篩選狀態生成自動檔名
   const generateExportFilename = () => {
     let filename = "";
-    
-    // 1. 時間標記
     if (searchMode === 'date') {
-      if (specificDate) {
-        filename += `${specificDate}_`;
-      } else {
-        filename += `${selectedYear}年${selectedMonth === 'all' ? '全年' : selectedMonth + '月'}_`;
-      }
+      filename += specificDate ? `${specificDate}_` : `${selectedYear}年${selectedMonth === 'all' ? '全年' : selectedMonth + '月'}_`;
     } else if (keywordSearch) {
       filename += `搜尋_${keywordSearch}_`;
     }
-
-    // 2. 類別標記
-    if (activeTab === 'repairs') {
-      filename += "維修紀錄報表";
-    } else {
-      const catLabel = recordCategoryFilter === 'all' ? '核銷全類別' : recordCategoryFilter;
-      filename += `${catLabel}_報表`;
-    }
-
+    filename += activeTab === 'repairs' ? "維修紀錄報表" : `${recordCategoryFilter === 'all' ? '核銷全類別' : recordCategoryFilter}_報表`;
     return filename;
   };
 
-  // --- 元件渲染 ---
-  const FilterHeader = () => (
+  const renderFilterHeader = () => (
     <div className="p-8 border-b border-slate-100 bg-slate-50/30 space-y-6">
       <div className="flex flex-wrap justify-between items-center gap-6">
         <div className="flex items-center gap-6">
@@ -244,7 +190,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* 核銷分類切換鈕 (僅在 records 分頁顯示) */}
         {activeTab === 'records' && (
           <div className="flex bg-white border border-slate-200 p-1 rounded-2xl shadow-sm">
             <button onClick={() => setRecordCategoryFilter('all')} className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${recordCategoryFilter === 'all' ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>全部</button>
@@ -311,8 +256,8 @@ const App: React.FC = () => {
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-[#f8fafc] text-black font-medium overflow-x-hidden">
-      {/* 登出確認彈窗 */}
+    <div className="min-h-screen w-full flex flex-col lg:flex-row bg-[#f8fafc] text-black font-medium overflow-x-hidden">
+      {/* 彈窗部分 */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-xl">
           <div className="bg-white rounded-[3rem] p-12 max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95">
@@ -327,7 +272,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* 編輯與刪除彈窗 */}
       {editingTransaction && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/60 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-lg">
@@ -346,7 +290,7 @@ const App: React.FC = () => {
             <h3 className="text-xl font-black mb-4">確認刪除？</h3>
             <div className="flex gap-4">
               <button onClick={() => setConfirmDeleteTarget(null)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold">取消</button>
-              <button onClick={() => handleDelete(confirmDeleteTarget)} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold">刪除</button>
+              <button onClick={() => handleDelete(confirmDeleteTarget!)} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold">刪除</button>
             </div>
           </div>
         </div>
@@ -358,7 +302,7 @@ const App: React.FC = () => {
           <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center font-black text-2xl shadow-lg -rotate-6">倉</div>
           <div>
             <h1 className="text-xl font-black leading-none mb-1">倉管智慧月結</h1>
-            <p className="text-[10px] text-indigo-400 font-bold tracking-widest uppercase opacity-70">WMS PRO v6.8</p>
+            <p className="text-[10px] text-indigo-400 font-bold tracking-widest uppercase opacity-70">WMS PRO v6.9</p>
           </div>
         </div>
 
@@ -387,14 +331,23 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* 主內容區 */}
-      <main className="flex-1 lg:ml-80 min-h-screen flex flex-col">
+      <main className="flex-1 lg:ml-80 min-h-screen flex flex-col bg-[#f8fafc]">
         <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 lg:px-12 py-5 flex items-center justify-between shadow-sm">
           <h2 className="text-xl font-black text-slate-900 tracking-tight">
             {activeTab === 'dashboard' ? '📊 營運數據分析' : activeTab === 'records' ? '📄 核銷日誌明細' : activeTab === 'repairs' ? '🛠️ 設備維護紀錄' : '📥 批次快速新增'}
           </h2>
           <div className="flex items-center gap-4">
-             {isLoading && <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>}
+             {isLoading ? (
+               <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+             ) : (
+               <button 
+                onClick={() => loadData(false)} 
+                title="重新整理雲端資料" 
+                className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
+               >
+                 🔄
+               </button>
+             )}
              <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl font-black text-xs uppercase tracking-widest border border-rose-100 hover:bg-rose-600 hover:text-white transition-all">🚪 登出系統</button>
           </div>
         </header>
@@ -455,7 +408,7 @@ const App: React.FC = () => {
               </div>
               
               <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
-                <FilterHeader />
+                {renderFilterHeader()}
                 <div className="overflow-x-auto">
                    <table className="w-full text-left">
                     <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
@@ -499,7 +452,7 @@ const App: React.FC = () => {
           ) : activeTab === 'records' ? (
             <div className="max-w-[1400px] mx-auto space-y-8">
               <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200/60 overflow-hidden">
-                <FilterHeader />
+                {renderFilterHeader()}
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
@@ -516,7 +469,7 @@ const App: React.FC = () => {
                         <tr key={t.id} className="group hover:bg-slate-50/50">
                           <td className="px-8 py-6">
                             <p className="text-sm font-black text-slate-900">{t.date}</p>
-                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black border ${getTypeStyle(t.type)}`}>
+                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black border ${t.type === TransactionType.INBOUND ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : t.type === TransactionType.USAGE ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-purple-50 text-purple-600 border-purple-100'}`}>
                               {t.type}
                             </span>
                           </td>
@@ -536,12 +489,6 @@ const App: React.FC = () => {
                       ))}
                     </tbody>
                   </table>
-                  {displayedList.length === 0 && (
-                    <div className="p-20 text-center">
-                      <div className="text-4xl mb-4 opacity-20">🔎</div>
-                      <p className="text-slate-400 font-black text-sm uppercase tracking-widest">目前篩選條件下無符合紀錄</p>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>

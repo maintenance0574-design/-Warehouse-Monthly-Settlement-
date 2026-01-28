@@ -1,8 +1,7 @@
 
 import { Transaction, TransactionType } from "../types";
 
-// 更新為用戶提供的新網址 (2024/05 最新版本)
-const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbz-YFkCb20FKni1-Fc9ugrq-sougLIsAanXQgi-iHCIkk8GqEtQbwH_hyzsREP4EUdy/exec";
+const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbxVOAngs14SNyrD0r87zzstVm1xAWGV9wbRemzNP1h-comr4yO52iSs1Fx92lbSk6eg/exec";
 
 const getScriptUrl = () => {
   const saved = localStorage.getItem('google_sheet_script_url');
@@ -26,7 +25,6 @@ export const dbService = {
     return !!url && url.startsWith('https://script.google.com/');
   },
 
-  // 強制更新本地存儲的 URL (用於切換新環境)
   forceUpdateUrl(newUrl: string) {
     localStorage.setItem('google_sheet_script_url', newUrl);
   },
@@ -53,19 +51,19 @@ export const dbService = {
         if (!Array.isArray(data)) return [];
 
         return data.map((item: any, index: number) => ({
-          id: String(item.id || `row-${index + 1}`).trim(),
-          date: toTaipeiISO(item.date || new Date()),
-          type: (item.type || TransactionType.INBOUND) as TransactionType,
+          id: String(item.id || item.ID || `row-${index + 1}`).trim(),
+          date: toTaipeiISO(item.date || item.日期),
+          type: (item.type || item.類別 || TransactionType.INBOUND) as TransactionType,
           accountCategory: String(item.帳目類別 || item.accountCategory || 'A'),
-          materialName: String(item.materialName || '未命名'),
-          materialNumber: String(item.materialNumber || ''),
+          materialName: String(item.materialName || item.料件名稱 || '未命名'),
+          materialNumber: String(item.materialNumber || item.料件編號 || ''),
           machineCategory: String(item.機台種類 || item.machineCategory || 'BA'),
           machineNumber: String(item.機台編號 || item.machineNumber || ''),
-          sn: String(item.sn || ''),
-          quantity: Number(item.quantity) || 0,
-          unitPrice: Number(item.unitPrice) || 0,
-          total: Number(item.total) || 0,
-          note: String(item.note || ''),
+          sn: String(item.sn || item.序號 || ''),
+          quantity: Number(item.quantity || item.數量) || 0,
+          unitPrice: Number(item.unitPrice || item.單價) || 0,
+          total: Number(item.total || item.總額) || 0,
+          note: String(item.note || item.備註 || ''),
           operator: String(item.操作人員 || item.operator || '系統'),
           faultReason: String(item.故障原因 || item.faultReason || ''),
           sentDate: toTaipeiISO(item.送修日期 || item.sentDate),
@@ -90,7 +88,7 @@ export const dbService = {
   },
 
   async update(transaction: Transaction): Promise<boolean> {
-    return this.postToCloud('insert', transaction.id, transaction.type, transaction);
+    return this.postToCloud('update', transaction.id, transaction.type, transaction);
   },
 
   async delete(id: string, type: TransactionType): Promise<boolean> {
@@ -102,33 +100,36 @@ export const dbService = {
     if (!url) return false;
     
     try {
+      // 構建扁平化的資料物件，同時包含中文與英文鍵值以防萬一
+      const dataPayload: any = {
+        id: String(id).trim(),
+        date: toTaipeiISO(transaction.date),
+        type: transaction.type,
+        materialName: String(transaction.materialName),
+        materialNumber: String(transaction.materialNumber),
+        machineNumber: String(transaction.machineNumber),
+        sn: String(transaction.sn || ''),
+        quantity: Number(transaction.quantity),
+        unitPrice: Number(transaction.unitPrice || 0),
+        total: Number(transaction.total || 0),
+        note: String(transaction.note || ''),
+        operator: String(transaction.operator || '系統'),
+        faultReason: String(transaction.faultReason || ''),
+        machineCategory: String(transaction.machineCategory || ''),
+        accountCategory: String(transaction.accountCategory || ''),
+        sentDate: toTaipeiISO(transaction.sentDate),
+        repairDate: toTaipeiISO(transaction.repairDate),
+        installDate: toTaipeiISO(transaction.installDate)
+      };
+
       const payload = {
         action,
         id: String(id).trim(),
         type, 
-        data: action === 'delete' ? {} : {
-          id: String(id).trim(),
-          date: toTaipeiISO(transaction.date),
-          type: transaction.type,
-          materialName: String(transaction.materialName),
-          materialNumber: String(transaction.materialNumber),
-          "機台編號": String(transaction.machineNumber),
-          sn: String(transaction.sn || ''),
-          quantity: Number(transaction.quantity),
-          unitPrice: Number(transaction.unitPrice || 0),
-          total: Number(transaction.total || 0),
-          note: String(transaction.note || ''),
-          operator: String(transaction.operator || '系統'),
-          "故障原因": String(transaction.faultReason || ''),
-          "機台種類": String(transaction.machineCategory || ''),
-          "帳目類別": String(transaction.accountCategory || ''),
-          "送修日期": toTaipeiISO(transaction.sentDate),
-          "完修日期": toTaipeiISO(transaction.repairDate),
-          "上機日期": toTaipeiISO(transaction.installDate)
-        }
+        data: action === 'delete' ? {} : dataPayload
       };
 
-      const result = await fetch(url, {
+      await fetch(url, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
