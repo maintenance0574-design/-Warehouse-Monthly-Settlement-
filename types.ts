@@ -23,6 +23,7 @@ export interface Transaction {
   operator: string; // 操作人員
   faultReason?: string; // 故障原因
   isScrapped?: boolean; // 是否報廢
+  isReceived?: boolean; // 是否已拿到料件 (進貨專用)
   // 維修專用欄位
   sentDate?: string;    // 送修日期
   repairDate?: string;  // 完修日期

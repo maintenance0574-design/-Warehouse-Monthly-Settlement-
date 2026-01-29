@@ -28,25 +28,26 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
     machineNumber: '',
     sn: '',
     quantity: 1,
+    unitPrice: 0,
     note: '',
     operator: currentUser,
     faultReason: '',
     isScrapped: false,
     sentDate: '',
     repairDate: '',
-    installDate: '',
-    accountCategory: '維修'
+    installDate: ''
   });
 
   const historicalData = useMemo(() => {
     const names = new Set<string>();
-    const nameToDetails: Record<string, { number: string, machine: string }> = {};
+    const nameToDetails: Record<string, { number: string, machine: string, price: number }> = {};
     existingTransactions.forEach(t => {
       if (t.materialName) {
         names.add(t.materialName);
         nameToDetails[t.materialName] = { 
           number: t.materialNumber || '', 
-          machine: t.machineCategory || MACHINE_CATEGORIES[0] 
+          machine: t.machineCategory || MACHINE_CATEGORIES[0],
+          price: t.unitPrice || 0
         };
       }
     });
@@ -60,7 +61,8 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
         ...initialData,
         date: initialData.date || getTaipeiToday(),
         operator: initialData.operator || currentUser,
-        isScrapped: !!initialData.isScrapped
+        isScrapped: !!initialData.isScrapped,
+        unitPrice: initialData.unitPrice || 0
       });
     } else {
       setFormData(prev => ({ ...prev, operator: currentUser }));
@@ -95,7 +97,8 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
       ...prev,
       materialName: name,
       materialNumber: details?.number || prev.materialNumber,
-      machineCategory: details?.machine || prev.machineCategory
+      machineCategory: details?.machine || prev.machineCategory,
+      unitPrice: details?.price || prev.unitPrice
     }));
     setSuggestions([]);
   };
@@ -107,30 +110,36 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
     if (formData.isScrapped && !finalNote.includes('報廢')) {
       finalNote = `【報廢】${finalNote}`.trim();
     }
+    
+    const finalPrice = formData.isScrapped ? 0 : Number(formData.unitPrice);
+    
     const tx: Transaction = {
       ...formData,
       note: finalNote,
       id: initialData?.id || 'RP' + Date.now(),
-      unitPrice: 0,
-      total: 0,
+      unitPrice: finalPrice,
+      total: Number(formData.quantity) * finalPrice,
       operator: currentUser,
-      isScrapped: formData.isScrapped
+      isScrapped: !!formData.isScrapped,
+      repairDate: formData.isScrapped ? '' : formData.repairDate,
+      installDate: formData.isScrapped ? '' : formData.installDate,
+      accountCategory: '' // Explicitly empty for repairs
     };
     const result = await onSave(tx);
     if (result) {
       setIsSuccess(true);
       setTimeout(() => { setIsSuccess(false); if (onCancel) onCancel(); }, 1200);
-      if (!initialData) setFormData({ ...formData, materialName: '', materialNumber: '', machineNumber: '', sn: '', quantity: 1, note: '', faultReason: '', isScrapped: false, sentDate: '', repairDate: '', installDate: '', operator: currentUser });
+      if (!initialData) setFormData({ ...formData, materialName: '', materialNumber: '', machineNumber: '', sn: '', quantity: 1, unitPrice: 0, note: '', faultReason: '', isScrapped: false, sentDate: '', repairDate: '', installDate: '', operator: currentUser });
     }
     setIsSyncing(false);
   };
 
-  const inputClasses = `w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:ring-4 outline-none transition-all font-bold text-sm text-slate-700 ${formData.isScrapped ? 'focus:ring-rose-500/10 focus:border-rose-500' : 'focus:ring-emerald-500/10 focus:border-emerald-500'}`;
-  const labelClasses = `block text-[11px] font-black uppercase tracking-widest mb-1 ml-1 ${formData.isScrapped ? 'text-rose-600/70' : 'text-emerald-600/70'}`;
+  const inputClasses = `w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-4 outline-none transition-all font-bold text-sm text-slate-700 ${formData.isScrapped ? 'focus:ring-rose-500/10 focus:border-rose-500' : 'focus:ring-emerald-500/10 focus:border-emerald-500'}`;
+  const labelClasses = `block text-[10px] font-black uppercase tracking-widest mb-1 ml-1 ${formData.isScrapped ? 'text-rose-600/70' : 'text-emerald-600/70'}`;
 
   return (
     <form onSubmit={handleSubmit} className={`p-5 rounded-[1.5rem] shadow-xl border transition-colors duration-500 bg-white w-full ${formData.isScrapped ? 'border-rose-100 ring-4 ring-rose-50' : 'border-emerald-100'}`}>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
           <span className={`w-1 h-5 rounded-full ${formData.isScrapped ? 'bg-rose-600' : 'bg-emerald-500'}`}></span>
           {initialData ? "編輯維修" : "新增維修"} {formData.isScrapped && <span className="text-rose-600 ml-1 text-sm">💀</span>}
@@ -138,19 +147,19 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
         {onCancel && <button type="button" onClick={onCancel} className="text-slate-300 hover:text-rose-600 transition-colors">✕</button>}
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClasses}>單據日期</label>
             <input type="date" className={inputClasses} value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
           </div>
           <div className="flex items-end">
-            <label className="flex items-center gap-2 cursor-pointer group mb-2 ml-1">
+            <label className="flex items-center gap-2 cursor-pointer group mb-1.5 ml-1">
               <input type="checkbox" checked={formData.isScrapped} onChange={e => setFormData({...formData, isScrapped: e.target.checked})} className="hidden" />
               <div className={`w-10 h-5 rounded-full relative transition-all duration-300 ${formData.isScrapped ? 'bg-rose-600' : 'bg-slate-200'}`}>
                 <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300 ${formData.isScrapped ? 'left-5.5' : 'left-0.5'}`}></div>
               </div>
-              <span className={`text-[10px] font-black uppercase ${formData.isScrapped ? 'text-rose-600' : 'text-slate-400'}`}>報廢</span>
+              <span className={`text-[9px] font-black uppercase ${formData.isScrapped ? 'text-rose-600' : 'text-slate-400'}`}>報廢標記</span>
             </label>
           </div>
         </div>
@@ -180,8 +189,11 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelClasses}>料件編號</label>
-            <input type="text" placeholder="P/N..." className={inputClasses} value={formData.materialNumber} onChange={e => setFormData({...formData, materialNumber: e.target.value})} />
+            <label className={labelClasses}>數量 / 維修單價</label>
+            <div className="flex gap-1">
+              <input type="number" min="1" className={`${inputClasses} text-center px-1`} value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
+              <input type="number" disabled={formData.isScrapped} placeholder="費用..." className={`${inputClasses} text-right px-1 disabled:opacity-30`} value={formData.unitPrice} onChange={e => setFormData({...formData, unitPrice: Number(e.target.value)})} />
+            </div>
           </div>
           <div>
             <label className={labelClasses}>機台類別</label>
@@ -191,34 +203,48 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
           </div>
         </div>
 
+        {!formData.isScrapped && (
+          <div>
+            <label className={labelClasses}>本筆維修小計</label>
+            <div className="px-4 py-1.5 bg-slate-900 text-emerald-400 rounded-lg font-black text-sm tabular-nums text-center shadow-inner">
+              NT$ {(Number(formData.quantity) * Number(formData.unitPrice)).toLocaleString()}
+            </div>
+          </div>
+        )}
+
         <div>
           <label className={labelClasses}>故障原因 (必填)</label>
           <input type="text" placeholder="描述..." className={inputClasses} value={formData.faultReason} required onChange={e => setFormData({...formData, faultReason: e.target.value})} />
         </div>
 
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100">
           <div>
             <label className={labelClasses}>送修日</label>
             <input type="date" className={`${inputClasses} px-1`} value={formData.sentDate} onChange={e => setFormData({...formData, sentDate: e.target.value})} />
           </div>
-          <div>
-            <label className={labelClasses}>完修日</label>
-            <input type="date" disabled={formData.isScrapped} className={`${inputClasses} px-1 disabled:opacity-30`} value={formData.repairDate} onChange={e => setFormData({...formData, repairDate: e.target.value})} />
-          </div>
-          <div>
-            <label className={labelClasses}>上機日</label>
-            <input type="date" disabled={formData.isScrapped} className={`${inputClasses} px-1 disabled:opacity-30`} value={formData.installDate} onChange={e => setFormData({...formData, installDate: e.target.value})} />
-          </div>
+          
+          {!formData.isScrapped && (
+            <>
+              <div>
+                <label className={labelClasses}>完修日</label>
+                <input type="date" className={`${inputClasses} px-1`} value={formData.repairDate} onChange={e => setFormData({...formData, repairDate: e.target.value})} />
+              </div>
+              <div>
+                <label className={labelClasses}>上機日</label>
+                <input type="date" className={`${inputClasses} px-1`} value={formData.installDate} onChange={e => setFormData({...formData, installDate: e.target.value})} />
+              </div>
+            </>
+          )}
         </div>
 
         <div>
-          <label className={labelClasses}>備註</label>
-          <textarea className={`${inputClasses} min-h-[44px] py-1.5 resize-none`} value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})}></textarea>
+          <label className={labelClasses}>備註說明</label>
+          <textarea className={`${inputClasses} min-h-[40px] py-1 resize-none`} value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})}></textarea>
         </div>
       </div>
 
-      <button type="submit" disabled={isSyncing} className={`mt-5 w-full font-black py-3 rounded-xl transition-all shadow-lg text-sm active:scale-[0.98] ${isSuccess ? "bg-emerald-500 text-white" : formData.isScrapped ? "bg-rose-600 hover:bg-rose-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
-        {isSyncing ? "同步中..." : isSuccess ? "✅ 已更新" : formData.isScrapped ? "確認報廢" : "存入紀錄"}
+      <button type="submit" disabled={isSyncing} className={`mt-4 w-full font-black py-3 rounded-xl transition-all shadow-lg text-sm active:scale-[0.98] ${isSuccess ? "bg-emerald-500 text-white" : formData.isScrapped ? "bg-rose-600 hover:bg-rose-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
+        {isSyncing ? "同步中..." : isSuccess ? "✅ 已更新" : formData.isScrapped ? "💀 確認報廢" : "存入紀錄"}
       </button>
     </form>
   );
