@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Transaction, TransactionType } from './types';
 import TransactionForm from './components/TransactionForm';
@@ -14,12 +15,12 @@ const getTaipeiDate = (dateInput?: string | Date): string => {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 };
 
-// 已儲存使用者提供的最新網址並自動連接
 const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbxuogDxnNZUkS8A4d7nU0enJjYxWd9r1ll9NNGquwEsytgxNIZhb1HkG4AFmNEbIQs5/exec";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; 
 const WARNING_THRESHOLD_MS = 4 * 60 * 1000;
 const ITEMS_PER_PAGE = 15;
+const AUTO_REFRESH_INTERVAL = 30000; // 30秒自動輪詢
 
 const DetailTooltip: React.FC<{ tx: Transaction; x: number; y: number }> = ({ tx, x, y }) => {
   const isRepair = tx.type === TransactionType.REPAIR;
@@ -79,6 +80,7 @@ const App: React.FC = () => {
   const showIdleWarningRef = useRef(false);
   const lastActivityRef = useRef(Date.now());
   const checkIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [hoveredTx, setHoveredTx] = useState<{ data: Transaction; x: number; y: number } | null>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,6 +97,7 @@ const App: React.FC = () => {
   const [recordCategoryFilter, setRecordCategoryFilter] = useState<'all' | TransactionType.INBOUND | TransactionType.USAGE | TransactionType.CONSTRUCTION>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'scrapped' | 'repairing' | 'pending_inbound'>('all');
   const [isLoading, setIsLoading] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('尚未同步');
   const [viewScope, setViewScope] = useState<'monthly' | 'all'>(() => (localStorage.getItem('ui_view_scope') as any) || 'monthly');
   const [searchMode, setSearchMode] = useState<'keyword' | 'date'>('keyword');
   const [selectedYear, setSelectedYear] = useState<string>(() => String(new Date().getFullYear()));
@@ -105,6 +108,22 @@ const App: React.FC = () => {
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<Transaction | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
+  const loadData = useCallback(async (silent = false) => {
+    if (!currentUser) return;
+    if (!silent) setIsLoading(true);
+    try {
+      const data = await dbService.fetchAll();
+      const formatted = (data || []).map(t => ({ ...t, date: getTaipeiDate(t.date) }));
+      setTransactions(formatted);
+      localStorage.setItem('wms_cache_data', JSON.stringify(formatted));
+      setLastSyncTime(new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    } catch (e: any) {
+      console.error("Fetch Error:", e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUser]);
+
   const handleLogout = useCallback(() => {
     sessionStorage.removeItem('wms_current_user');
     localStorage.removeItem('wms_cache_data');
@@ -112,6 +131,7 @@ const App: React.FC = () => {
     localStorage.removeItem('ui_view_scope');
     localStorage.removeItem('wms_last_activity');
     if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
     setCurrentUser(null);
     setTransactions([]);
     setActiveTab('dashboard');
@@ -127,6 +147,30 @@ const App: React.FC = () => {
     lastActivityRef.current = now;
     localStorage.setItem('wms_last_activity', now.toString());
   }, [currentUser]);
+
+  // 背景輪詢與焦點同步
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // 定義自動重新整理
+    autoRefreshRef.current = setInterval(() => {
+      // 只有在非閒置且非警示狀態下才背景同步
+      if (!showIdleWarningRef.current) {
+        loadData(true);
+      }
+    }, AUTO_REFRESH_INTERVAL);
+
+    // 當視窗獲得焦點時同步
+    const handleFocus = () => {
+      loadData(true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentUser, loadData]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -182,21 +226,6 @@ const App: React.FC = () => {
       .slice(0, 5);
   }, [transactions]);
 
-  const loadData = useCallback(async (silent = false) => {
-    if (!currentUser) return;
-    if (!silent) setIsLoading(true);
-    try {
-      const data = await dbService.fetchAll();
-      const formatted = (data || []).map(t => ({ ...t, date: getTaipeiDate(t.date) }));
-      setTransactions(formatted);
-      localStorage.setItem('wms_cache_data', JSON.stringify(formatted));
-    } catch (e: any) {
-      console.error("Fetch Error:", e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentUser]);
-
   const handleLogin = (username: string) => {
     sessionStorage.setItem('wms_current_user', username);
     lastActivityRef.current = Date.now();
@@ -211,7 +240,7 @@ const App: React.FC = () => {
       localStorage.setItem('ui_active_tab', activeTab);
       localStorage.setItem('ui_view_scope', viewScope);
     }
-  }, [activeTab, currentUser, viewScope]);
+  }, [activeTab, currentUser, viewScope, loadData, transactions.length]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -219,12 +248,17 @@ const App: React.FC = () => {
 
   const handleAction = async (tx: Transaction) => {
     const isUpdate = transactions.some(t => t.id === tx.id);
+    // 樂觀更新
     setTransactions(prev => {
       const newItems = isUpdate ? prev.map(t => t.id === tx.id ? tx : t) : [tx, ...prev];
       localStorage.setItem('wms_cache_data', JSON.stringify(newItems));
       return newItems;
     });
     const ok = isUpdate ? await dbService.update(tx) : await dbService.save(tx);
+    if (ok) {
+      // 操作成功後立即從雲端同步一次完整資料
+      loadData(true);
+    }
     return ok;
   };
 
@@ -235,7 +269,8 @@ const App: React.FC = () => {
       return newItems;
     });
     setConfirmDeleteTarget(null);
-    await dbService.delete(target.id, target.type);
+    const ok = await dbService.delete(target.id, target.type);
+    if (ok) loadData(true);
   };
 
   const filteredList = useMemo(() => {
@@ -505,8 +540,28 @@ const App: React.FC = () => {
 
       <main className="flex-1 lg:ml-80 min-h-screen flex flex-col bg-[#f8fafc]">
         <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 lg:px-12 py-5 flex items-center justify-between shadow-sm">
-          <h2 className="text-xl font-black text-slate-900 tracking-tight">{activeTab === 'dashboard' ? '📊 成本分析看板' : activeTab === 'records' ? '📄 核銷日誌明細' : activeTab === 'repairs' ? '🛠️ 設備維護紀錄' : '📥 批次快速新增'}</h2>
-          <div className="flex items-center gap-4">{isLoading ? <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div> : <button onClick={() => loadData(false)} title="同步資料" className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">🔄</button>}<button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl font-black text-xs uppercase tracking-widest border border-rose-100 hover:bg-rose-600 hover:text-white transition-all">🚪 登出</button></div>
+          <div className="flex flex-col">
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">{activeTab === 'dashboard' ? '📊 成本分析看板' : activeTab === 'records' ? '📄 核銷日誌明細' : activeTab === 'repairs' ? '🛠️ 設備維護紀錄' : '📥 批次快速新增'}</h2>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                {isLoading ? '雲端同步中...' : `最後同步: ${lastSyncTime}`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            {isLoading ? (
+              <div className="flex items-center gap-2 px-3 py-1 bg-amber-50 rounded-lg">
+                <div className="w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-[10px] font-black text-amber-600 uppercase">Syncing</span>
+              </div>
+            ) : (
+              <button onClick={() => loadData(false)} title="立即重新整理" className="p-2 text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1.5 bg-slate-50 rounded-lg border border-slate-200 hover:border-indigo-200">
+                <span className="text-xs font-black">🔄 Refresh</span>
+              </button>
+            )}
+            <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl font-black text-xs uppercase tracking-widest border border-rose-100 hover:bg-rose-600 hover:text-white transition-all">🚪 登出</button>
+          </div>
         </header>
 
         <div className="p-6 lg:p-12">
