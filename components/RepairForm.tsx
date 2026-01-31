@@ -134,37 +134,37 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
     setIsSyncing(false);
   };
 
-  const inputClasses = `w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-4 outline-none transition-all font-bold text-sm text-slate-700 ${formData.isScrapped ? 'focus:ring-rose-500/10 focus:border-rose-500' : 'focus:ring-emerald-500/10 focus:border-emerald-500'}`;
-  const labelClasses = `block text-[10px] font-black uppercase tracking-widest mb-1 ml-1 ${formData.isScrapped ? 'text-rose-600/70' : 'text-emerald-600/70'}`;
+  const inputClasses = `w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-4 outline-none transition-all font-bold text-base text-slate-700 ${formData.isScrapped ? 'focus:ring-rose-500/10 focus:border-rose-500' : 'focus:ring-emerald-500/10 focus:border-emerald-500'}`;
+  const labelClasses = `block text-[14px] font-black uppercase tracking-widest mb-2 ml-1 ${formData.isScrapped ? 'text-rose-600' : 'text-emerald-700/70'}`;
 
   return (
-    <form onSubmit={handleSubmit} className={`p-5 rounded-[1.5rem] shadow-xl border transition-colors duration-500 bg-white w-full ${formData.isScrapped ? 'border-rose-100 ring-4 ring-rose-50' : 'border-emerald-100'}`}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-          <span className={`w-1 h-5 rounded-full ${formData.isScrapped ? 'bg-rose-600' : 'bg-emerald-500'}`}></span>
+    <form onSubmit={handleSubmit} className={`p-8 rounded-[2rem] shadow-xl border transition-colors duration-500 bg-white w-full ${formData.isScrapped ? 'border-rose-100 ring-4 ring-rose-50' : 'border-emerald-100'}`}>
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+          <span className={`w-1.5 h-6 rounded-full ${formData.isScrapped ? 'bg-rose-600' : 'bg-emerald-500'}`}></span>
           {initialData ? "編輯維修" : "新增維修"} {formData.isScrapped && <span className="text-rose-600 ml-1 text-sm">💀</span>}
         </h3>
-        {onCancel && <button type="button" onClick={onCancel} className="text-slate-300 hover:text-rose-600 transition-colors">✕</button>}
+        {onCancel && <button type="button" onClick={onCancel} className="text-slate-300 hover:text-rose-600 transition-colors text-xl">✕</button>}
       </div>
 
-      <div className="space-y-2.5">
-        <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClasses}>單據日期</label>
             <input type="date" className={inputClasses} value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
           </div>
           <div className="flex items-end">
-            <label className="flex items-center gap-2 cursor-pointer group mb-1.5 ml-1">
+            <label className="flex items-center gap-3 cursor-pointer group mb-2 ml-1">
               <input type="checkbox" checked={formData.isScrapped} onChange={e => setFormData({...formData, isScrapped: e.target.checked})} className="hidden" />
-              <div className={`w-10 h-5 rounded-full relative transition-all duration-300 ${formData.isScrapped ? 'bg-rose-600' : 'bg-slate-200'}`}>
-                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300 ${formData.isScrapped ? 'left-5.5' : 'left-0.5'}`}></div>
+              <div className={`w-12 h-6 rounded-full relative transition-all duration-300 ${formData.isScrapped ? 'bg-rose-600' : 'bg-slate-200'}`}>
+                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 ${formData.isScrapped ? 'left-7' : 'left-1'}`}></div>
               </div>
-              <span className={`text-[9px] font-black uppercase ${formData.isScrapped ? 'text-rose-600' : 'text-slate-400'}`}>報廢標記</span>
+              <span className={`text-[12px] font-black uppercase ${formData.isScrapped ? 'text-rose-600' : 'text-slate-400'}`}>報廢標記</span>
             </label>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClasses}>設備序號 (SN)</label>
             <input type="text" placeholder="SN..." className={inputClasses} value={formData.sn} onChange={e => setFormData({...formData, sn: e.target.value})} />
@@ -179,18 +179,18 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
           <label className={labelClasses}>維修零件/主體</label>
           <input type="text" required placeholder="名稱..." className={inputClasses} value={formData.materialName} autoComplete="off" onChange={e => handleMaterialNameChange(e.target.value)} />
           {suggestions.length > 0 && (
-            <div ref={suggestionRef} className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden max-h-32 overflow-y-auto">
+            <div ref={suggestionRef} className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden max-h-48 overflow-y-auto">
               {suggestions.map((name, i) => (
-                <button key={i} type="button" onClick={() => selectSuggestion(name)} className="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border-b border-slate-50 last:border-0">💡 {name}</button>
+                <button key={i} type="button" onClick={() => selectSuggestion(name)} className="w-full text-left px-4 py-3 text-sm font-bold text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border-b border-slate-50 last:border-0">💡 {name}</button>
               ))}
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClasses}>數量 / 維修單價</label>
-            <div className="flex gap-1">
+            <div className="flex gap-2">
               <input type="number" min="1" className={`${inputClasses} text-center px-1`} value={formData.quantity} onChange={e => setFormData({...formData, quantity: Number(e.target.value)})} />
               <input type="number" disabled={formData.isScrapped} placeholder="費用..." className={`${inputClasses} text-right px-1 disabled:opacity-30`} value={formData.unitPrice} onChange={e => setFormData({...formData, unitPrice: Number(e.target.value)})} />
             </div>
@@ -206,7 +206,7 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
         {!formData.isScrapped && (
           <div>
             <label className={labelClasses}>本筆維修小計</label>
-            <div className="px-4 py-1.5 bg-slate-900 text-emerald-400 rounded-lg font-black text-sm tabular-nums text-center shadow-inner">
+            <div className="px-5 py-3 bg-slate-900 text-emerald-400 rounded-xl font-black text-lg tabular-nums text-center shadow-inner border border-white/5">
               NT$ {(Number(formData.quantity) * Number(formData.unitPrice)).toLocaleString()}
             </div>
           </div>
@@ -217,7 +217,7 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
           <input type="text" placeholder="描述..." className={inputClasses} value={formData.faultReason} required onChange={e => setFormData({...formData, faultReason: e.target.value})} />
         </div>
 
-        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100">
+        <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-100">
           <div>
             <label className={labelClasses}>送修日</label>
             <input type="date" className={`${inputClasses} px-1`} value={formData.sentDate} onChange={e => setFormData({...formData, sentDate: e.target.value})} />
@@ -239,11 +239,11 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
 
         <div>
           <label className={labelClasses}>備註說明</label>
-          <textarea className={`${inputClasses} min-h-[40px] py-1 resize-none`} value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})}></textarea>
+          <textarea className={`${inputClasses} min-h-[50px] py-2 resize-none`} value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})}></textarea>
         </div>
       </div>
 
-      <button type="submit" disabled={isSyncing} className={`mt-4 w-full font-black py-3 rounded-xl transition-all shadow-lg text-sm active:scale-[0.98] ${isSuccess ? "bg-emerald-500 text-white" : formData.isScrapped ? "bg-rose-600 hover:bg-rose-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
+      <button type="submit" disabled={isSyncing} className={`mt-6 w-full font-black py-4 rounded-xl transition-all shadow-lg text-lg active:scale-[0.98] ${isSuccess ? "bg-emerald-500 text-white" : formData.isScrapped ? "bg-rose-600 hover:bg-rose-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
         {isSyncing ? "同步中..." : isSuccess ? "✅ 已更新" : formData.isScrapped ? "💀 確認報廢" : "存入紀錄"}
       </button>
     </form>

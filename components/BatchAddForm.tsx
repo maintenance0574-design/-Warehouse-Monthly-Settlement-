@@ -3,7 +3,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Transaction, TransactionType } from '../types';
 
 interface Props {
-  onSave: (tx: Transaction, action: 'save') => Promise<boolean>;
+  onBatchSave: (txList: Transaction[]) => Promise<boolean>;
   existingTransactions: Transaction[];
   onComplete: () => void;
   currentUser: string;
@@ -12,13 +12,13 @@ interface Props {
 const MACHINE_CATEGORIES = ['BA', 'RL', 'SB', 'XD', '7UP', 'HOT8', '3card', 'DT', 'CG', '共用'];
 const getTaipeiToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 
-const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplete, currentUser }) => {
+const BatchAddForm: React.FC<Props> = ({ onBatchSave, existingTransactions, onComplete, currentUser }) => {
   const [rows, setRows] = useState<any[]>([
     {
       id: Math.random().toString(36).substr(2, 9),
       date: getTaipeiToday(),
       type: TransactionType.USAGE,
-      accountCategory: '', 
+      accountCategory: 'A', 
       materialName: '',
       materialNumber: '',
       machineCategory: 'BA',
@@ -29,12 +29,12 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
       unitPrice: 0,
       note: '',
       operator: currentUser,
-      isReceived: false // 預設修改為待收貨
+      isReceived: false 
     }
   ]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [statusMessage, setStatusMessage] = useState('');
   const [suggestions, setSuggestions] = useState<{ rowId: string, field: string, items: string[] }>({ rowId: '', field: '', items: [] });
   const suggestionRef = useRef<HTMLDivElement>(null);
 
@@ -42,7 +42,6 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
     const names = new Set<string>();
     const numbers = new Set<string>();
     const nameToDetails: Record<string, { number: string, machine: string }> = {};
-
     existingTransactions.forEach(t => {
       if (t.materialName) {
         names.add(t.materialName);
@@ -53,7 +52,6 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
       }
       if (t.materialNumber) numbers.add(t.materialNumber);
     });
-
     return { names: Array.from(names), numbers: Array.from(numbers), nameToDetails };
   }, [existingTransactions]);
 
@@ -69,7 +67,7 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
       note: '',
       quantity: 1,
       operator: currentUser,
-      isReceived: false // 預設修改為待收貨
+      isReceived: false 
     }, ...rows]);
   };
 
@@ -114,45 +112,38 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
     if (isSubmitting) return;
     const validRows = rows.filter(r => r.materialName.trim());
     if (validRows.length === 0) return;
+    
     setIsSubmitting(true);
-    setProgress({ current: 0, total: validRows.length });
+    setStatusMessage('🚀 打包數據中...');
+    
     try {
-      const promises = validRows.map(async (row) => {
+      const payload: Transaction[] = validRows.map(row => {
         const isRepair = row.type === TransactionType.REPAIR;
-        const isInbound = row.type === TransactionType.INBOUND;
-        const tx: Transaction = {
+        const qty = Number(row.quantity);
+        const price = Number(row.unitPrice);
+        return {
           ...row,
           id: 'TX-B' + Date.now() + Math.random().toString(36).substr(2, 5),
-          quantity: Number(row.quantity),
-          unitPrice: Number(row.unitPrice),
-          total: Number(row.quantity) * Number(row.unitPrice),
-          operator: currentUser,
-          accountCategory: isRepair ? '' : (row.accountCategory || 'A')
+          quantity: qty,
+          unitPrice: price,
+          total: qty * price,
+          accountCategory: isRepair ? '' : (row.accountCategory || 'A'),
+          operator: currentUser
         };
-        // 精準清理：除了進貨外其餘皆不具備 isReceived 屬性
-        if (!isInbound) {
-          delete (tx as any).isReceived;
-        } else {
-          tx.isReceived = row.isReceived === undefined ? false : !!row.isReceived;
-        }
-
-        if (!isRepair) {
-          delete tx.sn;
-          delete tx.faultReason;
-          delete tx.isScrapped;
-          delete tx.sentDate;
-          delete tx.repairDate;
-          delete tx.installDate;
-        }
-        const res = await onSave(tx, 'save');
-        setProgress(prev => ({ ...prev, current: prev.current + 1 }));
-        return res;
       });
-      await Promise.all(promises);
-      onComplete();
+
+      setStatusMessage(`📡 雲端高速同步中 (${payload.length} 筆)...`);
+      const success = await onBatchSave(payload);
+      if (success) {
+        setStatusMessage('✅ 同步完成！');
+        setTimeout(onComplete, 500);
+      } else {
+        setStatusMessage('❌ 同步失敗，請稍後再試');
+        setIsSubmitting(false);
+      }
     } catch (e) {
-      console.error("Batch submission error", e);
-    } finally {
+      console.error("Batch save error", e);
+      setStatusMessage('⚠️ 發生錯誤');
       setIsSubmitting(false);
     }
   };
@@ -167,8 +158,8 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
         <div className="flex items-center gap-6">
           <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-3xl shadow-lg">⚡</div>
           <div>
-            <h2 className="text-xl font-black text-white">智慧批次新增</h2>
-            <p className="text-sm text-indigo-400 font-bold uppercase tracking-widest mt-1">目前準備並行提交 {rows.length} 筆紀錄</p>
+            <h2 className="text-xl font-black text-white">智慧批次新增 (高速同步)</h2>
+            <p className="text-sm text-indigo-400 font-bold uppercase tracking-widest mt-1">目前準備同步 {rows.length} 筆紀錄</p>
           </div>
         </div>
         <div className="flex items-center gap-8">
@@ -177,9 +168,9 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
             <p className="text-2xl font-black text-indigo-400">NT$ {totalAmount.toLocaleString()}</p>
           </div>
           <div className="flex gap-3">
-             <button onClick={addRow} className="px-6 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black text-sm transition-all">+ 新增空白列</button>
-             <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all">
-                {isSubmitting ? `並行同步中 ${progress.current}/${progress.total}` : "🚀 開始全量同步"}
+             <button onClick={addRow} disabled={isSubmitting} className="px-6 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black text-sm transition-all">+ 新增空白列</button>
+             <button onClick={handleSubmit} disabled={isSubmitting} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all min-w-[180px]">
+                {isSubmitting ? statusMessage : "🚀 開始高速同步"}
              </button>
           </div>
         </div>
@@ -239,8 +230,8 @@ const BatchAddForm: React.FC<Props> = ({ onSave, existingTransactions, onComplet
                   </div>
                 </div>
                 <div className="xl:col-span-2 flex justify-end gap-3">
-                  <button onClick={() => duplicateRow(idx)} className="p-4 bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-2xl transition-all shadow-sm" title="複製此行">📋</button>
-                  <button onClick={() => removeRow(idx)} className="p-4 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-2xl transition-all shadow-sm">🗑️</button>
+                  <button onClick={() => duplicateRow(idx)} disabled={isSubmitting} className="p-4 bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded-2xl transition-all shadow-sm" title="複製此行">📋</button>
+                  <button onClick={() => removeRow(idx)} disabled={isSubmitting} className="p-4 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-2xl transition-all shadow-sm">🗑️</button>
                 </div>
               </div>
             </div>

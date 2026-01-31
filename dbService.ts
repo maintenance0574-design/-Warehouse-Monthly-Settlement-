@@ -45,6 +45,7 @@ export const dbService = {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        priority: 'high',
         body: JSON.stringify({
           action: 'login',
           data: { username, password }
@@ -57,7 +58,7 @@ export const dbService = {
     }
   },
 
-  async fetchAll(signal?: AbortSignal, retries = 2): Promise<Transaction[]> {
+  async fetchAll(signal?: AbortSignal, retries = 1): Promise<Transaction[]> {
     const url = getScriptUrl();
     if (!url) return [];
 
@@ -65,15 +66,19 @@ export const dbService = {
       try {
         const separator = url.includes('?') ? '&' : '?';
         const finalUrl = `${url}${separator}action=fetch&_=${Date.now()}`;
-        const response = await fetch(finalUrl, { method: 'GET', mode: 'cors', redirect: 'follow', signal });
+        const response = await fetch(finalUrl, { 
+          method: 'GET', 
+          mode: 'cors', 
+          redirect: 'follow', 
+          signal,
+          cache: 'no-cache'
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         if (!Array.isArray(data)) return [];
 
         return data.map((item: any, index: number) => {
           const type = (item.type || item.類別 || TransactionType.INBOUND) as TransactionType;
-          
-          // 增強型金額解析：對應 GAS 後端可能出現的所有欄位關鍵字
           const unitPrice = Number(item.unitPrice || item.單價 || item['維修單價'] || item['費用'] || 0);
           const quantity = Number(item.quantity || item.數量 || 1);
           const total = Number(item.total || item.總額 || item['維修總額'] || item['小計'] || item['結算總額'] || (unitPrice * quantity));
@@ -104,7 +109,6 @@ export const dbService = {
       } catch (error: any) {
         if (error.name === 'AbortError') throw error;
         if (attempt < retries) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
           return fetchWithRetry(attempt + 1);
         }
         throw error;
@@ -134,6 +138,8 @@ export const dbService = {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        priority: 'high',
+        keepalive: true,
         body: JSON.stringify(payload)
       });
       return true;
@@ -170,6 +176,8 @@ export const dbService = {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        priority: 'high',
+        keepalive: true,
         body: JSON.stringify(payload)
       });
       return true;
