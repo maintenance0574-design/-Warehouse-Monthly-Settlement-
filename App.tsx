@@ -18,7 +18,6 @@ const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycby4yVDJXoV-mQRiZ
 const ITEMS_PER_PAGE = 15;
 
 const App: React.FC = () => {
-  // 1. 基礎狀態
   const [currentUser, setCurrentUser] = useState<string | null>(() => sessionStorage.getItem('wms_current_user'));
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('wms_cache_data');
@@ -28,7 +27,6 @@ const App: React.FC = () => {
     (localStorage.getItem('ui_active_tab') as any) || 'dashboard'
   );
 
-  // 2. 篩選與分頁狀態
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending_inbound' | 'scrapped' | 'repairing'>('all');
   const [recordCategoryFilter, setRecordCategoryFilter] = useState<'all' | TransactionType.INBOUND | TransactionType.USAGE | TransactionType.CONSTRUCTION>('all');
   const [viewScope, setViewScope] = useState<'monthly' | 'all'>('monthly');
@@ -37,22 +35,18 @@ const App: React.FC = () => {
   const [keywordSearch, setKeywordSearch] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  // 3. 維修中心與聯動狀態
   const [repairAnalysisScope, setRepairAnalysisScope] = useState<'standard' | 'custom'>('standard');
   const [selectedRepairAnalysisYear, setSelectedRepairAnalysisYear] = useState<string>(() => String(new Date().getFullYear()));
   const [selectedRepairAnalysisMonth, setSelectedRepairAnalysisMonth] = useState<string>('all');
   const [repairStatsLimit, setRepairStatsLimit] = useState<number>(5);
   const [selectedRepairMaterial, setSelectedRepairMaterial] = useState<string | null>(null);
   
-  // 詳情懸浮視窗狀態：加入動態座標追蹤
   const [hoveredRecord, setHoveredRecord] = useState<{data: Transaction, x: number, y: number} | null>(null);
 
-  // 4. 操作狀態
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Transaction | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  // 5. 資料載入
   const loadData = useCallback(async () => {
     if (!currentUser) return;
     try {
@@ -66,17 +60,24 @@ const App: React.FC = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser) loadData();
-    dbService.forceUpdateUrl(NEW_TARGET_URL);
+    if (currentUser) {
+      dbService.forceUpdateUrl(NEW_TARGET_URL);
+      loadData();
+    }
   }, [currentUser, loadData]);
 
   const handleLogout = useCallback(() => {
-    sessionStorage.clear();
+    // 1. 先清除持久化存儲，防止下次進入時自動登入
+    sessionStorage.removeItem('wms_current_user');
     localStorage.removeItem('wms_cache_data');
     localStorage.removeItem('ui_active_tab');
+    
+    // 2. 清空當前內存狀態，這會觸發 React 重新渲染 LoginScreen
+    setTransactions([]);
     setCurrentUser(null);
     setShowLogoutConfirm(false);
-    window.location.reload();
+    
+    // 3. 不再使用 window.location.reload()，避免在特定環境下產生 URL 拼接錯誤 (googhttps 報錯)
   }, []);
 
   const isRepairs = activeTab === 'repairs';
@@ -92,7 +93,6 @@ const App: React.FC = () => {
     return Array.from(years).sort((a, b) => b.localeCompare(a));
   }, [transactions]);
 
-  // 主要篩選邏輯
   const filteredList = useMemo(() => {
     return transactions.filter(t => {
       if (statusFilter !== 'all') {
@@ -256,10 +256,9 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 lg:ml-72 min-h-screen p-6 lg:p-10 flex flex-col gap-10 relative">
-        {/* 全方位智慧詳情懸浮視窗 - 滑鼠即時追蹤 (適用於維修中心與核銷紀錄) */}
-        {hoveredRecord && (
+        {hoveredRecord && hoveredRecord.data && (
           <div 
-            className="fixed z-[999] bg-[#0f172a]/95 backdrop-blur-xl border border-white/10 rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] p-8 w-[340px] pointer-events-none ring-1 ring-white/5 animate-in fade-in zoom-in duration-150"
+            className="fixed z-[999] bg-[#0f172a]/95 backdrop-blur-xl border border-white/10 rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] p-8 w-[340px] pointer-events-none ring-1 ring-white/5 animate-in fade-in zoom-in duration-150 will-change-transform"
             style={{ 
               left: hoveredRecord.x + 25 + 320 > window.innerWidth ? hoveredRecord.x - 365 : hoveredRecord.x + 25, 
               top: hoveredRecord.y + 25 + 420 > window.innerHeight ? hoveredRecord.y - 425 : hoveredRecord.y + 25 
@@ -271,7 +270,6 @@ const App: React.FC = () => {
                   <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] flex items-center gap-2">
                     <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span> {hoveredRecord.data.type === TransactionType.REPAIR ? '維修完整資產報告' : '核銷紀錄資產報告'}
                   </p>
-                  {/* 根據類型顯示狀態標籤 */}
                   {hoveredRecord.data.type === TransactionType.REPAIR ? (
                     hoveredRecord.data.isScrapped ? (
                       <span className="bg-rose-500/20 text-rose-400 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-rose-500/30">💀 報廢</span>
@@ -310,7 +308,6 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* 維修專屬時間軸，若為一般核銷則顯示數量明細 */}
               {hoveredRecord.data.type === TransactionType.REPAIR ? (
                 <div className="space-y-3 bg-white/5 p-5 rounded-[1.5rem] border border-white/5">
                   {[
@@ -366,7 +363,6 @@ const App: React.FC = () => {
         ) : activeTab === 'repairs' ? (
           <div className="space-y-10">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-              {/* 維修損耗排行圖表 */}
               <div className="bg-[#0f172a] rounded-[2.5rem] p-10 flex flex-col h-[520px] shadow-2xl relative overflow-hidden border border-white/5">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-[100px] -mr-32 -mt-32"></div>
                 <div className="relative z-10 flex flex-col h-full">
@@ -417,7 +413,7 @@ const App: React.FC = () => {
                           <YAxis dataKey="name" type="category" tick={{fill:'#94a3b8', fontSize:11, fontWeight: 900}} width={140} axisLine={false} tickLine={false} />
                           <RechartsTooltip 
                             cursor={{fill: 'rgba(255,255,255,0.03)'}} 
-                            contentStyle={{backgroundColor:'#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'}} 
+                            contentStyle={{backgroundColor:'#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px'}} 
                             itemStyle={{color: '#fff', fontWeight: 800}}
                             labelStyle={{color: '#10b981', fontWeight: 900, marginBottom: '4px'}}
                           />
@@ -430,7 +426,6 @@ const App: React.FC = () => {
                               const isDeselecting = selectedRepairMaterial === d.name;
                               setSelectedRepairMaterial(isDeselecting ? null : d.name);
                               
-                              // 圖表聯動同步全域日期區間
                               if (!isDeselecting && repairAnalysisScope === 'standard') {
                                   const year = selectedRepairAnalysisYear;
                                   const month = selectedRepairAnalysisMonth;
@@ -443,7 +438,6 @@ const App: React.FC = () => {
                                       setEndDate(`${year}-${month}-${String(lastDay).padStart(2, '0')}`);
                                   }
                               }
-                              
                               setCurrentPage(1);
                               setViewScope('all');
                             }}
@@ -549,7 +543,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* 彈窗與浮層 */}
       {pendingDelete && (
         <div className="fixed inset-0 z-[600] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-6">
           <div className="bg-white p-12 rounded-[3.5rem] max-w-sm w-full shadow-2xl text-center border border-slate-100">
@@ -564,12 +557,13 @@ const App: React.FC = () => {
       )}
 
       {showLogoutConfirm && (
-        <div className="fixed inset-0 z-[500] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="bg-white p-12 rounded-[3.5rem] max-sm w-full text-center shadow-2xl border border-slate-100">
-            <div className="w-20 h-20 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-6">🚪</div>
-            <h3 className="text-2xl font-black text-slate-900 mb-8">準備登出系統？</h3>
+        <div className="fixed inset-0 z-[700] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="bg-white p-12 rounded-[3.5rem] max-w-sm w-full text-center shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] border border-slate-100">
+            <div className="w-24 h-24 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner">🚪</div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">準備登出系統？</h3>
+            <p className="text-sm font-bold text-slate-400 mb-8">登出後將清空當前操作狀態</p>
             <div className="flex flex-col gap-3">
-              <button onClick={handleLogout} className="w-full py-4.5 bg-slate-900 text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">登出帳號</button>
+              <button onClick={handleLogout} className="w-full py-4.5 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:bg-rose-600 active:scale-95 transition-all">確認登出帳號</button>
               <button onClick={() => setShowLogoutConfirm(false)} className="w-full py-3.5 text-slate-400 font-black hover:text-slate-600 transition-colors">返回系統</button>
             </div>
           </div>
