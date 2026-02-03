@@ -14,7 +14,8 @@ const getTaipeiDate = (dateInput?: string | Date): string => {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 };
 
-const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycby4yVDJXoV-mQRiZ5WYTjQOGnPxg_iMcasOcZTXkDwXcvw0LCA0-xacL5pGwBBPEcDd/exec";
+// 更新為使用者提供的最新網址
+const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbzYzdHfXCrGGVcRY4RDaJl6FHc3Uqh84QqAk7asbAJkRULB2CCpazzQNoE72qeSpdPn/exec";
 const ITEMS_PER_PAGE = 15;
 
 const App: React.FC = () => {
@@ -67,17 +68,16 @@ const App: React.FC = () => {
   }, [currentUser, loadData]);
 
   const handleLogout = useCallback(() => {
-    // 1. 先清除持久化存儲，防止下次進入時自動登入
-    sessionStorage.removeItem('wms_current_user');
+    // 1. 清除所有狀態與存儲
+    sessionStorage.clear();
     localStorage.removeItem('wms_cache_data');
     localStorage.removeItem('ui_active_tab');
     
-    // 2. 清空當前內存狀態，這會觸發 React 重新渲染 LoginScreen
-    setTransactions([]);
+    // 2. 重置內存狀態回初始，不刷新頁面避免網址拼接錯誤
     setCurrentUser(null);
+    setTransactions([]);
     setShowLogoutConfirm(false);
-    
-    // 3. 不再使用 window.location.reload()，避免在特定環境下產生 URL 拼接錯誤 (googhttps 報錯)
+    setActiveTab('dashboard');
   }, []);
 
   const isRepairs = activeTab === 'repairs';
@@ -561,7 +561,7 @@ const App: React.FC = () => {
           <div className="bg-white p-12 rounded-[3.5rem] max-w-sm w-full text-center shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] border border-slate-100">
             <div className="w-24 h-24 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center text-4xl mx-auto mb-8 shadow-inner">🚪</div>
             <h3 className="text-2xl font-black text-slate-900 mb-2">準備登出系統？</h3>
-            <p className="text-sm font-bold text-slate-400 mb-8">登出後將清空當前操作狀態</p>
+            <p className="text-sm font-bold text-slate-400 mb-8">登出後將清空當前操作狀態並返回登入頁面</p>
             <div className="flex flex-col gap-3">
               <button onClick={handleLogout} className="w-full py-4.5 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:bg-rose-600 active:scale-95 transition-all">確認登出帳號</button>
               <button onClick={() => setShowLogoutConfirm(false)} className="w-full py-3.5 text-slate-400 font-black hover:text-slate-600 transition-colors">返回系統</button>
