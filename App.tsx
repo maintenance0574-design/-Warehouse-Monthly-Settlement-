@@ -68,12 +68,12 @@ const App: React.FC = () => {
   }, [currentUser, loadData]);
 
   const handleLogout = useCallback(() => {
-    // 1. 清除所有狀態與存儲
+    // 1. 清除持久化存儲
     sessionStorage.clear();
     localStorage.removeItem('wms_cache_data');
     localStorage.removeItem('ui_active_tab');
     
-    // 2. 重置內存狀態回初始，不刷新頁面避免網址拼接錯誤
+    // 2. 重置狀態，不使用 window.location.reload() 以避免環境報錯
     setCurrentUser(null);
     setTransactions([]);
     setShowLogoutConfirm(false);
@@ -514,7 +514,15 @@ const App: React.FC = () => {
                       onMouseMove={(e) => setHoveredRecord(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
                     >
                       <td className="px-8 py-5 text-xs text-slate-500 font-black">{t.date}<div className="text-[10px] text-indigo-600 font-black uppercase mt-1 tracking-widest">{t.type}</div></td>
-                      <td className="px-8 py-5"><div className="text-slate-900 truncate max-w-xs">{t.materialName}</div><div className="text-[10px] text-slate-400 mt-1 font-black">PN: {t.materialNumber || '--'}</div></td>
+                      <td className="px-8 py-5">
+                        <div className="text-slate-900 truncate max-w-xs">{t.materialName}</div>
+                        <div className="flex gap-2 mt-1 items-center font-black">
+                          <span className="text-[10px] text-slate-400">PN: {t.materialNumber || '--'}</span>
+                          {t.type === TransactionType.INBOUND && !t.isReceived && (
+                            <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-tighter">⏳ 尚未收貨</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-8 py-5 text-right font-black text-slate-700 tabular-nums">{t.quantity}</td>
                       <td className="px-8 py-6 text-right font-black text-indigo-600 tabular-nums">NT$ {t.total.toLocaleString()}</td>
                       <td className="px-8 py-5 text-center">
