@@ -116,7 +116,7 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
     const tx: Transaction = {
       ...formData,
       note: finalNote,
-      id: initialData?.id || 'RP' + Date.now(),
+      id: initialData?.id || 'RP' + Date.now() + Math.random().toString(36).substr(2, 5),
       unitPrice: finalPrice,
       total: Number(formData.quantity) * finalPrice,
       operator: currentUser,

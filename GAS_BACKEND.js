@@ -1,10 +1,16 @@
 
 /**
- * 倉儲月結管理系統 - 後端核心腳本 (v13.0 高速批次同步版)
+ * 倉儲月結管理系統 - 後端核心腳本 (v14.0 安全強化版)
+ * 已實施：伺服器端財務邏輯驗證、PropertiesService 敏感資訊保護。
  */
 
 var CATEGORIES = ["進貨", "用料", "建置", "維修"];
-var MASTER_PASSWORD = "Jumbo.net";
+var PROPERTIES = PropertiesService.getScriptProperties();
+
+// 初始化密碼（若尚未設定）
+if (!PROPERTIES.getProperty('MASTER_PASSWORD')) {
+  PROPERTIES.setProperty('MASTER_PASSWORD', 'Jumbo.net');
+}
 
 var COMMON_FIELDS = [
   { header: "id", keys: ["id", "ID", "編號"] },
@@ -63,14 +69,28 @@ function ensureHeaders(sheet, sheetName) {
   }
 }
 
+/**
+ * 安全處理：重新計算財務數據，不信任前端傳入的 total
+ */
 function processRowData(sheet, type, payload, id) {
   var currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var allFieldDefinitions = COMMON_FIELDS.concat(ACCOUNT_FIELDS).concat(INBOUND_FIELDS).concat(REPAIR_FIELDS);
   
+  // 提取基礎財務數據進行伺服器端計算
+  var qty = Number(payload.quantity || 1);
+  var price = Number(payload.unitPrice || 0);
+  var calculatedTotal = qty * price;
+
   return currentHeaders.map(function(h) {
     var headerText = String(h).trim();
     var matchedField = allFieldDefinitions.find(function(f) { return f.header === headerText || f.keys.indexOf(headerText) !== -1; });
+    
     if (matchedField) {
+      // 財務欄位特殊處理：強制校驗
+      if (matchedField.header === "total") return calculatedTotal;
+      if (matchedField.header === "quantity") return qty;
+      if (matchedField.header === "unitPrice") return price;
+
       if (type === "維修") {
         if (ACCOUNT_FIELDS.some(function(f) { return f.header === matchedField.header; })) return "";
         if (INBOUND_FIELDS.some(function(f) { return f.header === matchedField.header; })) return "";
@@ -83,7 +103,6 @@ function processRowData(sheet, type, payload, id) {
         var key = matchedField.keys[j];
         var val = payload[key];
         if (val !== undefined && val !== null) {
-          if (["quantity", "unitPrice", "total"].indexOf(matchedField.header) !== -1) return Number(val) || 0;
           if (["是否報廢", "是否收貨"].indexOf(matchedField.header) !== -1) return !!val;
           return val;
         }
@@ -126,7 +145,10 @@ function doPost(e) {
 
     if (action === 'login') {
       var payload = params.data || {};
-      if (payload.password === MASTER_PASSWORD) return ContentService.createTextOutput(JSON.stringify({authorized: true})).setMimeType(ContentService.MimeType.JSON);
+      var masterPass = PROPERTIES.getProperty('MASTER_PASSWORD');
+      if (payload.password === masterPass) {
+        return ContentService.createTextOutput(JSON.stringify({authorized: true})).setMimeType(ContentService.MimeType.JSON);
+      }
       return ContentService.createTextOutput(JSON.stringify({authorized: false, message: "密碼不正確"})).setMimeType(ContentService.MimeType.JSON);
     }
 

@@ -100,7 +100,7 @@ const TransactionForm: React.FC<Props> = ({ onSave, initialData, onCancel, title
 
     const tx: Transaction = {
       ...formData,
-      id: initialData?.id || 'TX' + Date.now(),
+      id: initialData?.id || 'TX' + Date.now() + Math.random().toString(36).substr(2, 5),
       quantity: qty,
       unitPrice: price,
       total: qty * price,

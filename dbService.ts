@@ -1,12 +1,13 @@
 
-import { Transaction, TransactionType } from "../types";
+import { Transaction, TransactionType } from "./types";
 
-// 更新預設連接網址
-const DEFAULT_URL = "https://script.google.com/macros/s/AKfycby4yVDJXoV-mQRiZ5WYTjQOGnPxg_iMcasOcZTXkDwXcvw0LCA0-xacL5pGwBBPEcDd/exec";
+// 使用者提供的最新穩定網址
+const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbyJ1JWbmU350jW9LXs9yMJaF31pDqWI0sAethLLL160kuu4ZjHLzDNVa5crLQpchTWW/exec";
 
 const getScriptUrl = () => {
   const saved = localStorage.getItem('google_sheet_script_url');
-  return (saved || DEFAULT_URL).trim();
+  if (!saved || !saved.includes('/exec')) return DEFAULT_URL;
+  return saved.trim();
 };
 
 const toTaipeiISO = (dateStr: string | undefined) => {
@@ -40,26 +41,35 @@ export const dbService = {
   },
 
   async verifyLogin(username: string, password: string): Promise<{ authorized: boolean; message?: string }> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        priority: 'high',
         body: JSON.stringify({
           action: 'login',
           data: { username, password }
-        })
+        }),
+        redirect: 'follow'
       });
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const res = await response.json();
       return { authorized: res.authorized === true, message: res.message };
-    } catch (e) {
-      return { authorized: false, message: "無法連線至後端驗證伺服器" };
+    } catch (e: any) {
+      console.error("Login verification network error:", e);
+      if (e.message === 'Failed to fetch') {
+        return { 
+          authorized: false, 
+          message: "連線失敗：請確認 Google 腳本已部署為『任何人 (Anyone)』且權限正確。" 
+        };
+      }
+      return { authorized: false, message: "連線異常，請稍後再試" };
     }
   },
 
   async fetchAll(signal?: AbortSignal, retries = 1): Promise<Transaction[]> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     if (!url) return [];
 
     const fetchWithRetry = async (attempt: number): Promise<Transaction[]> => {
@@ -68,7 +78,7 @@ export const dbService = {
         const finalUrl = `${url}${separator}action=fetch&_=${Date.now()}`;
         const response = await fetch(finalUrl, { 
           method: 'GET', 
-          mode: 'cors', 
+          mode: 'cors',
           redirect: 'follow', 
           signal,
           cache: 'no-cache'
@@ -108,9 +118,7 @@ export const dbService = {
         });
       } catch (error: any) {
         if (error.name === 'AbortError') throw error;
-        if (attempt < retries) {
-          return fetchWithRetry(attempt + 1);
-        }
+        if (attempt < retries) return fetchWithRetry(attempt + 1);
         throw error;
       }
     };
@@ -122,7 +130,7 @@ export const dbService = {
   },
 
   async batchSave(transactions: Transaction[]): Promise<boolean> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     if (!url || transactions.length === 0) return false;
     try {
       const payload = {
@@ -138,9 +146,8 @@ export const dbService = {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        priority: 'high',
-        keepalive: true,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        redirect: 'follow'
       });
       return true;
     } catch (e) {
@@ -158,7 +165,7 @@ export const dbService = {
   },
 
   async postToCloud(action: string, id: string, type: string, transaction: any): Promise<boolean> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     if (!url) return false;
     try {
       const payload = {
@@ -176,9 +183,8 @@ export const dbService = {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        priority: 'high',
-        keepalive: true,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        redirect: 'follow'
       });
       return true;
     } catch (e) {

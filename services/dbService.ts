@@ -1,12 +1,13 @@
 
 import { Transaction, TransactionType } from "../types";
 
-// 更新為使用者指定的最新連接網址
-const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbzYzdHfXCrGGVcRY4RDaJl6FHc3Uqh84QqAk7asbAJkRULB2CCpazzQNoE72qeSpdPn/exec";
+// 使用者提供的最新穩定網址
+const DEFAULT_URL = "https://script.google.com/macros/s/AKfycbyJ1JWbmU350jW9LXs9yMJaF31pDqWI0sAethLLL160kuu4ZjHLzDNVa5crLQpchTWW/exec";
 
 const getScriptUrl = () => {
   const saved = localStorage.getItem('google_sheet_script_url');
-  return (saved || DEFAULT_URL).trim();
+  if (!saved || !saved.includes('/exec')) return DEFAULT_URL;
+  return saved.trim();
 };
 
 const toTaipeiISO = (dateStr: string | undefined) => {
@@ -40,40 +41,57 @@ export const dbService = {
   },
 
   async verifyLogin(username: string, password: string): Promise<{ authorized: boolean; message?: string }> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     try {
+      // 解決 Failed to fetch 的核心方案：
+      // 1. 使用 text/plain 避免引發 OPTIONS 預檢請求。
+      // 2. redirect: 'follow' 處理 GAS 的重新導向。
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        priority: 'high',
         body: JSON.stringify({
           action: 'login',
           data: { username, password }
-        })
+        }),
+        redirect: 'follow'
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP 伺服器回傳狀態: ${response.status}`);
+      }
+      
       const res = await response.json();
       return { authorized: res.authorized === true, message: res.message };
-    } catch (e) {
-      return { authorized: false, message: "無法連線至後端驗證伺服器" };
+    } catch (e: any) {
+      console.error("Login verification network error:", e);
+      if (e.message === 'Failed to fetch') {
+        return { 
+          authorized: false, 
+          message: "連線失敗：請確認 Google 腳本已部署為『任何人 (Anyone)』且權限正確。" 
+        };
+      }
+      return { authorized: false, message: `系統連線異常: ${e.message}` };
     }
   },
 
   async fetchAll(signal?: AbortSignal, retries = 1): Promise<Transaction[]> {
-    const url = getScriptUrl();
-    if (!url) return [];
-
+    const url = DEFAULT_URL;
+    
     const fetchWithRetry = async (attempt: number): Promise<Transaction[]> => {
       try {
         const separator = url.includes('?') ? '&' : '?';
         const finalUrl = `${url}${separator}action=fetch&_=${Date.now()}`;
+        
         const response = await fetch(finalUrl, { 
           method: 'GET', 
-          mode: 'cors', 
+          mode: 'cors',
           redirect: 'follow', 
           signal,
           cache: 'no-cache'
         });
+        
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
         const data = await response.json();
         if (!Array.isArray(data)) return [];
 
@@ -108,9 +126,7 @@ export const dbService = {
         });
       } catch (error: any) {
         if (error.name === 'AbortError') throw error;
-        if (attempt < retries) {
-          return fetchWithRetry(attempt + 1);
-        }
+        if (attempt < retries) return fetchWithRetry(attempt + 1);
         throw error;
       }
     };
@@ -122,7 +138,7 @@ export const dbService = {
   },
 
   async batchSave(transactions: Transaction[]): Promise<boolean> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     if (!url || transactions.length === 0) return false;
     try {
       const payload = {
@@ -138,13 +154,12 @@ export const dbService = {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        priority: 'high',
-        keepalive: true,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        redirect: 'follow'
       });
       return true;
     } catch (e) {
-      console.error("Batch save error", e);
+      console.error("Batch save error:", e);
       return false;
     }
   },
@@ -158,7 +173,7 @@ export const dbService = {
   },
 
   async postToCloud(action: string, id: string, type: string, transaction: any): Promise<boolean> {
-    const url = getScriptUrl();
+    const url = DEFAULT_URL;
     if (!url) return false;
     try {
       const payload = {
@@ -176,12 +191,12 @@ export const dbService = {
       await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        priority: 'high',
-        keepalive: true,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        redirect: 'follow'
       });
       return true;
     } catch (e) {
+      console.error("Cloud post error:", e);
       return false;
     }
   }

@@ -14,8 +14,6 @@ const getTaipeiDate = (dateInput?: string | Date): string => {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
 };
 
-// 更新為使用者提供的最新網址
-const NEW_TARGET_URL = "https://script.google.com/macros/s/AKfycbzYzdHfXCrGGVcRY4RDaJl6FHc3Uqh84QqAk7asbAJkRULB2CCpazzQNoE72qeSpdPn/exec";
 const ITEMS_PER_PAGE = 15;
 
 const App: React.FC = () => {
@@ -27,6 +25,9 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'repairs' | 'batch'>(
     (localStorage.getItem('ui_active_tab') as any) || 'dashboard'
   );
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending_inbound' | 'scrapped' | 'repairing'>('all');
   const [recordCategoryFilter, setRecordCategoryFilter] = useState<'all' | TransactionType.INBOUND | TransactionType.USAGE | TransactionType.CONSTRUCTION>('all');
@@ -50,30 +51,45 @@ const App: React.FC = () => {
 
   const loadData = useCallback(async () => {
     if (!currentUser) return;
+    setIsSyncing(true);
     try {
       const data = await dbService.fetchAll();
-      const formatted = (data || []).map(t => ({ ...t, date: getTaipeiDate(t.date) }));
-      setTransactions(formatted);
-      localStorage.setItem('wms_cache_data', JSON.stringify(formatted));
+      if (data && data.length > 0) {
+        // Deduplicate by ID to prevent React key warnings
+        const uniqueMap = new Map<string, any>();
+        data.forEach(item => {
+          const id = String(item.id || '').trim();
+          if (id) uniqueMap.set(id, item);
+          else {
+            // If no ID, we keep it but it might cause issues later
+            // Better to assign a temporary one if missing
+            const tempId = `temp-${Math.random().toString(36).substr(2, 9)}`;
+            uniqueMap.set(tempId, { ...item, id: tempId });
+          }
+        });
+        const uniqueData = Array.from(uniqueMap.values());
+        const formatted = uniqueData.map(t => ({ ...t, date: getTaipeiDate(t.date) }));
+        setTransactions(formatted);
+        localStorage.setItem('wms_cache_data', JSON.stringify(formatted));
+        setLastSyncTime(new Date().toLocaleTimeString('zh-TW'));
+      }
     } catch (e) {
-      console.error("Fetch data error:", e);
+      console.error("Sync data error:", e);
+    } finally {
+      setIsSyncing(false);
     }
   }, [currentUser]);
 
   useEffect(() => {
     if (currentUser) {
-      dbService.forceUpdateUrl(NEW_TARGET_URL);
       loadData();
     }
   }, [currentUser, loadData]);
 
   const handleLogout = useCallback(() => {
-    // 1. 清除持久化存儲
     sessionStorage.clear();
     localStorage.removeItem('wms_cache_data');
     localStorage.removeItem('ui_active_tab');
-    
-    // 2. 重置狀態，不使用 window.location.reload() 以避免環境報錯
     setCurrentUser(null);
     setTransactions([]);
     setShowLogoutConfirm(false);
@@ -100,7 +116,6 @@ const App: React.FC = () => {
         if (statusFilter === 'scrapped') return t.isScrapped === true;
         if (statusFilter === 'repairing') return t.type === TransactionType.REPAIR && !t.repairDate && !t.isScrapped;
       }
-      
       if (activeTab === 'records') {
         if (t.type === TransactionType.REPAIR || t.isScrapped === true) return false;
         if (recordCategoryFilter !== 'all' && t.type !== recordCategoryFilter) return false;
@@ -109,19 +124,18 @@ const App: React.FC = () => {
         if (t.type !== TransactionType.REPAIR) return false;
         if (selectedRepairMaterial && t.materialName !== selectedRepairMaterial) return false;
       }
-
       if (startDate && t.date < startDate) return false;
       if (endDate && t.date > endDate) return false;
-
       const k = keywordSearch.toLowerCase().trim();
       if (k) {
         return t.materialName.toLowerCase().includes(k) || 
                t.materialNumber.toLowerCase().includes(k) || 
                (t.sn && t.sn.toLowerCase().includes(k)) || 
-               (t.machineNumber && t.machineNumber.toLowerCase().includes(k));
+               (t.machineNumber && t.machineNumber.toLowerCase().includes(k)) ||
+               (t.note && t.note.toLowerCase().includes(k));
       }
       return true;
-    }).sort((a, b) => b.date.localeCompare(a.date));
+    }).sort((a, b) => b.date.slice(0, 10).localeCompare(a.date.slice(0, 10)));
   }, [transactions, activeTab, statusFilter, recordCategoryFilter, startDate, endDate, keywordSearch, selectedRepairMaterial]);
 
   const repairStats = useMemo(() => {
@@ -137,7 +151,6 @@ const App: React.FC = () => {
       }
       return true;
     });
-
     const map = new Map<string, number>();
     repairData.forEach(t => map.set(t.materialName, (map.get(t.materialName) || 0) + 1));
     const sorted = Array.from(map.entries())
@@ -157,6 +170,7 @@ const App: React.FC = () => {
     const result = await (isUpdate ? dbService.update(tx) : dbService.save(tx));
     if (result) {
       setTransactions(prev => isUpdate ? prev.map(t => t.id === tx.id ? tx : t) : [tx, ...prev]);
+      setLastSyncTime(new Date().toLocaleTimeString('zh-TW'));
     }
     return result;
   };
@@ -167,6 +181,7 @@ const App: React.FC = () => {
     if (success) {
       setTransactions(prev => prev.filter(t => t.id !== pendingDelete.id));
       setPendingDelete(null);
+      setLastSyncTime(new Date().toLocaleTimeString('zh-TW'));
     }
   };
 
@@ -177,7 +192,6 @@ const App: React.FC = () => {
           <button onClick={() => {setViewScope('monthly'); setCurrentPage(1);}} className={`px-4 py-2 text-xs font-black rounded-lg transition-all ${viewScope === 'monthly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>最新 10 筆</button>
           <button onClick={() => {setViewScope('all'); setCurrentPage(1);}} className={`px-4 py-2 text-xs font-black rounded-lg transition-all ${viewScope === 'all' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>全部紀錄</button>
         </div>
-
         <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-2 shadow-sm shrink-0">
           <span className="text-sm">📅</span>
           <div className="flex items-center gap-2">
@@ -187,7 +201,6 @@ const App: React.FC = () => {
           </div>
           {(startDate || endDate) && <button onClick={() => {setStartDate(''); setEndDate(''); setSelectedRepairMaterial(null);}} className="ml-1 text-slate-300 hover:text-rose-500 transition-colors">✕</button>}
         </div>
-
         <div className="flex items-center gap-3 shrink-0">
           <select value={statusFilter} onChange={e => {setStatusFilter(e.target.value as any); setCurrentPage(1);}} className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-black outline-none text-slate-600 focus:border-indigo-500 shadow-sm h-[42px] min-w-[120px]">
             <option value="all">全部狀態</option>
@@ -208,7 +221,6 @@ const App: React.FC = () => {
             </select>
           )}
         </div>
-        
         {selectedRepairMaterial && (
           <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl border border-emerald-200 text-xs font-black flex items-center gap-2 animate-pulse shadow-sm">
             🎯 鎖定零件：{selectedRepairMaterial}
@@ -216,9 +228,8 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
-
       <div className="relative">
-        <input type="text" placeholder="搜尋料件、PN、SN 或機台編號..." value={keywordSearch} onChange={e => {setKeywordSearch(e.target.value); setCurrentPage(1);}} className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-500/5 outline-none focus:border-indigo-500 shadow-sm transition-all" />
+        <input type="text" placeholder="搜尋料件、PN、SN、機台編號或備註..." value={keywordSearch} onChange={e => {setKeywordSearch(e.target.value); setCurrentPage(1);}} className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-indigo-500/5 outline-none focus:border-indigo-500 shadow-sm transition-all" />
         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-xl">🔍</span>
       </div>
     </div>
@@ -252,7 +263,24 @@ const App: React.FC = () => {
             <button key={item.id} onClick={() => { setActiveTab(item.id as any); setStatusFilter('all'); setViewScope('monthly'); setCurrentPage(1); setSelectedRepairMaterial(null); }} className={`w-full text-left px-5 py-4 rounded-xl font-black transition-all ${activeTab === item.id ? 'bg-indigo-600 shadow-xl translate-x-1' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>{item.label}</button>
           ))}
         </nav>
-        <button onClick={() => setShowLogoutConfirm(true)} className="mt-6 py-4 bg-rose-600/90 text-white rounded-xl font-black hover:bg-rose-600 transition-all shadow-lg active:scale-95">安全登出</button>
+        
+        <div className="mt-auto pt-6 space-y-3">
+          <div className="bg-slate-800/50 rounded-2xl p-4 border border-white/5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">雲端同步狀態</span>
+              <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}></div>
+            </div>
+            <p className="text-[11px] font-bold text-slate-300 mb-3">最後更新：{lastSyncTime || '尚未同步'}</p>
+            <button 
+              onClick={loadData} 
+              disabled={isSyncing}
+              className={`w-full py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${isSyncing ? 'bg-slate-700 text-slate-500' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white'}`}
+            >
+              {isSyncing ? '同步中...' : '🔄 立即強制刷新'}
+            </button>
+          </div>
+          <button onClick={() => setShowLogoutConfirm(true)} className="w-full py-4 bg-rose-600/90 text-white rounded-xl font-black hover:bg-rose-600 transition-all shadow-lg active:scale-95">安全登出</button>
+        </div>
       </aside>
 
       <main className="flex-1 lg:ml-72 min-h-screen p-6 lg:p-10 flex flex-col gap-10 relative">
@@ -264,6 +292,7 @@ const App: React.FC = () => {
               top: hoveredRecord.y + 25 + 420 > window.innerHeight ? hoveredRecord.y - 425 : hoveredRecord.y + 25 
             }}
           >
+            {/* Hover Card Content */}
             <div className="space-y-6">
               <div className="border-b border-white/10 pb-5">
                 <div className="flex items-center justify-between mb-2">
@@ -335,15 +364,14 @@ const App: React.FC = () => {
               )}
 
               {hoveredRecord.data.note && (
-                <div className="bg-amber-900/10 p-4 rounded-xl border border-amber-500/10">
-                  <p className="text-[10px] font-black text-amber-500/70 uppercase mb-1.5">主管/操作員備註</p>
-                  <p className="text-amber-200/90 text-[11px] font-bold line-clamp-3 italic leading-relaxed">"{hoveredRecord.data.note}"</p>
+                <div className="bg-white/5 p-4 rounded-[1.5rem] border border-white/5">
+                  <p className="text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-widest">備註事項</p>
+                  <p className="text-slate-300 text-[11px] font-bold leading-relaxed">{hoveredRecord.data.note}</p>
                 </div>
               )}
 
               <div className="flex items-center justify-between pt-4 border-t border-white/10">
                 <div className="flex items-center gap-2.5">
-                   <div className="w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center text-[10px] border border-white/5">👤</div>
                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">承辦: {hoveredRecord.data.operator}</span>
                 </div>
                 <div className="text-right">
@@ -425,7 +453,6 @@ const App: React.FC = () => {
                               if (!d || !d.name) return;
                               const isDeselecting = selectedRepairMaterial === d.name;
                               setSelectedRepairMaterial(isDeselecting ? null : d.name);
-                              
                               if (!isDeselecting && repairAnalysisScope === 'standard') {
                                   const year = selectedRepairAnalysisYear;
                                   const month = selectedRepairAnalysisMonth;
@@ -461,9 +488,9 @@ const App: React.FC = () => {
                     <tr><th className="px-8 py-5">序號 / 機台</th><th className="px-8 py-5">維修零件</th><th className="px-8 py-5 text-right">結算金額</th><th className="px-8 py-5 text-center">操作</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-bold">
-                    {displayedList.map(t => (
+                    {displayedList.map((t, idx) => (
                       <tr 
-                        key={t.id} 
+                        key={`${t.id}-${idx}`} 
                         className="hover:bg-slate-50 transition-all group/row cursor-default"
                         onMouseEnter={(e) => setHoveredRecord({ data: t, x: e.clientX, y: e.clientY })}
                         onMouseLeave={() => setHoveredRecord(null)}
@@ -505,9 +532,9 @@ const App: React.FC = () => {
                   <tr><th className="px-8 py-5">日期 / 類別</th><th className="px-8 py-5">料件明細</th><th className="px-8 py-5 text-right">數量</th><th className="px-8 py-5 text-right">金額</th><th className="px-8 py-5 text-center">操作</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-bold">
-                  {displayedList.map(t => (
+                  {displayedList.map((t, idx) => (
                     <tr 
-                      key={t.id} 
+                      key={`${t.id}-${idx}`} 
                       className="hover:bg-slate-50 transition-all group/row cursor-default"
                       onMouseEnter={(e) => setHoveredRecord({ data: t, x: e.clientX, y: e.clientY })}
                       onMouseLeave={() => setHoveredRecord(null)}
@@ -516,10 +543,10 @@ const App: React.FC = () => {
                       <td className="px-8 py-5 text-xs text-slate-500 font-black">{t.date}<div className="text-[10px] text-indigo-600 font-black uppercase mt-1 tracking-widest">{t.type}</div></td>
                       <td className="px-8 py-5">
                         <div className="text-slate-900 truncate max-w-xs">{t.materialName}</div>
-                        <div className="flex gap-2 mt-1 items-center font-black">
+                        <div className="flex flex-wrap gap-2 mt-1 items-center font-black">
                           <span className="text-[10px] text-slate-400">PN: {t.materialNumber || '--'}</span>
                           {t.type === TransactionType.INBOUND && !t.isReceived && (
-                            <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-tighter">⏳ 尚未收貨</span>
+                            <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-tighter shadow-sm animate-pulse">⏳ 尚未收貨</span>
                           )}
                         </div>
                       </td>
@@ -551,6 +578,7 @@ const App: React.FC = () => {
         )}
       </main>
 
+      {/* Modals... (Delete, Logout, Editing) */}
       {pendingDelete && (
         <div className="fixed inset-0 z-[600] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-6">
           <div className="bg-white p-12 rounded-[3.5rem] max-w-sm w-full shadow-2xl text-center border border-slate-100">
