@@ -7,6 +7,7 @@ import BatchAddForm from './components/BatchAddForm';
 import Dashboard from './components/Dashboard';
 import LoginScreen from './components/LoginScreen';
 import { dbService } from './services/dbService';
+import { exportToExcel } from './services/reportService';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, Cell } from 'recharts';
 
 const getTaipeiDate = (dateInput?: string | Date): string => {
@@ -48,6 +49,9 @@ const App: React.FC = () => {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Transaction | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportStartDate, setExportStartDate] = useState<string>('');
+  const [exportEndDate, setExportEndDate] = useState<string>('');
 
   const loadData = useCallback(async () => {
     if (!currentUser) return;
@@ -221,6 +225,16 @@ const App: React.FC = () => {
             </select>
           )}
         </div>
+        <button 
+          onClick={() => {
+            setExportStartDate(startDate || getTaipeiDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
+            setExportEndDate(endDate || getTaipeiDate(new Date()));
+            setShowExportModal(true);
+          }}
+          className="ml-auto bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-black shadow-lg transition-all flex items-center gap-2 active:scale-95"
+        >
+          📥 下載 Excel 報表
+        </button>
         {selectedRepairMaterial && (
           <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-xl border border-emerald-200 text-xs font-black flex items-center gap-2 animate-pulse shadow-sm">
             🎯 鎖定零件：{selectedRepairMaterial}
@@ -613,6 +627,78 @@ const App: React.FC = () => {
               <RepairForm onSave={handleAction} initialData={editingTransaction} onCancel={() => setEditingTransaction(null)} currentUser={currentUser!} /> :
               <TransactionForm onSave={handleAction} initialData={editingTransaction} onCancel={() => setEditingTransaction(null)} currentUser={currentUser!} />
             }
+          </div>
+        </div>
+      )}
+
+      {showExportModal && (
+        <div className="fixed inset-0 z-[800] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="bg-white p-10 rounded-[3rem] max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+                <span className="text-2xl">📥</span> 匯出 Excel 報表
+              </h3>
+              <button onClick={() => setShowExportModal(false)} className="text-slate-300 hover:text-rose-500 transition-colors">✕</button>
+            </div>
+            
+            <div className="space-y-6 mb-10">
+              <p className="text-sm font-bold text-slate-500">請選擇您想要匯出的資料日期區間：</p>
+              
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">起始日期</label>
+                  <input 
+                    type="date" 
+                    value={exportStartDate} 
+                    onChange={e => setExportStartDate(e.target.value)}
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-indigo-600 focus:ring-4 focus:ring-indigo-500/5 outline-none focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">結束日期</label>
+                  <input 
+                    type="date" 
+                    value={exportEndDate} 
+                    onChange={e => setExportEndDate(e.target.value)}
+                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-black text-indigo-600 focus:ring-4 focus:ring-indigo-500/5 outline-none focus:border-indigo-500 transition-all"
+                  />
+                </div>
+              </div>
+              
+              <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                <p className="text-[11px] font-bold text-indigo-600 leading-relaxed">
+                  💡 系統將會根據您選擇的區間，自動抓取所有的「{activeTab === 'repairs' ? '維修紀錄' : '核銷紀錄'}」並生成專業報表。
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => {
+                  const exportData = transactions.filter(t => {
+                    if (activeTab === 'records') {
+                      if (t.type === TransactionType.REPAIR || t.isScrapped === true) return false;
+                    } else if (activeTab === 'repairs') {
+                      if (t.type !== TransactionType.REPAIR) return false;
+                    }
+                    if (exportStartDate && t.date < exportStartDate) return false;
+                    if (exportEndDate && t.date > exportEndDate) return false;
+                    return true;
+                  });
+                  exportToExcel(exportData, activeTab === 'repairs' ? '維修中心報表' : '核銷紀錄報表');
+                  setShowExportModal(false);
+                }}
+                className="w-full py-4.5 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all"
+              >
+                確認並開始下載
+              </button>
+              <button 
+                onClick={() => setShowExportModal(false)}
+                className="w-full py-3.5 text-slate-400 font-black hover:text-slate-600 transition-colors"
+              >
+                取消
+              </button>
+            </div>
           </div>
         </div>
       )}
