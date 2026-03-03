@@ -187,6 +187,11 @@ const RepairForm: React.FC<Props> = ({ onSave, initialData, onCancel, existingTr
           )}
         </div>
 
+        <div>
+          <label className={labelClasses}>料件編號 (P/N)</label>
+          <input type="text" placeholder="P/N..." className={inputClasses} value={formData.materialNumber} onChange={e => setFormData({...formData, materialNumber: e.target.value})} />
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelClasses}>數量 / 維修單價</label>

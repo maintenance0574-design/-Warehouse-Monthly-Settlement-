@@ -513,10 +513,11 @@ const App: React.FC = () => {
                         <td className="px-8 py-5 text-sm font-black text-slate-800">{t.sn || '--'}<div className="text-[10px] text-slate-400 mt-1">{t.machineNumber || '未指定機台'}</div></td>
                         <td className="px-8 py-5">
                           <div className="text-slate-900 truncate max-w-xs">{t.materialName}</div>
-                          <div className="flex gap-2 mt-1 items-center">
-                            <span className="text-[10px] text-rose-500 font-black truncate max-w-[150px]">{t.faultReason}</span>
-                            {t.isScrapped && <span className="bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">💀 報廢</span>}
-                            {!t.repairDate && !t.isScrapped && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">🛠️ 維修中</span>}
+                          <div className="flex flex-wrap gap-2 mt-1 items-center font-black">
+                            <span className="text-[10px] text-slate-400">PN: {t.materialNumber || '--'}</span>
+                            <span className="text-[10px] text-rose-500 truncate max-w-[150px]">{t.faultReason}</span>
+                            {t.isScrapped && <span className="bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded text-[9px] uppercase">💀 報廢</span>}
+                            {!t.repairDate && !t.isScrapped && <span className="bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded text-[9px] uppercase">🛠️ 維修中</span>}
                           </div>
                         </td>
                         <td className="px-8 py-5 text-right font-black text-slate-900 tabular-nums">NT$ {t.total.toLocaleString()}</td>
